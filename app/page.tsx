@@ -44,13 +44,10 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!session?.user) {
-      setProfile(null);
-      setProfileReady(true);
-      return;
-    }
+    if (!session?.user) return;
 
     let active = true;
+    const userId = session.user.id;
 
     async function loadProfile() {
       setProfileReady(false);
@@ -60,7 +57,7 @@ export default function HomePage() {
         .select(
           "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, onboarding_completed"
         )
-        .eq("id", session!.user.id)
+        .eq("id", userId)
         .maybeSingle();
 
       if (!active) return;

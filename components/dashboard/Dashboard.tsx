@@ -6,7 +6,13 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
 
-type View = "today" | "meals" | "movement" | "wellbeing" | "progress";
+type View =
+  | "today"
+  | "weekly"
+  | "meals"
+  | "movement"
+  | "wellbeing"
+  | "progress";
 
 type Props = {
   onSignOut: () => void | Promise<void>;
@@ -19,6 +25,15 @@ type Meal = {
   id: string;
   type: string;
   food: string;
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
+
+type FoodPreset = {
+  id: string;
+  name: string;
   kcal: number;
   protein: number;
   carbs: number;
@@ -65,13 +80,98 @@ const initialMeals: Meal[] = [
   },
 ];
 
+const commonFoods: FoodPreset[] = [
+  { id: "chicken", name: "Grillezett csirkemell", kcal: 165, protein: 31, carbs: 0, fat: 3.6 },
+  { id: "rice", name: "Főtt rizs", kcal: 130, protein: 2.7, carbs: 28, fat: 0.3 },
+  { id: "yogurt", name: "Natúr görög joghurt", kcal: 73, protein: 9.5, carbs: 3.5, fat: 2 },
+  { id: "oats", name: "Zabpehely", kcal: 372, protein: 13.5, carbs: 60, fat: 7 },
+  { id: "banana", name: "Banán", kcal: 89, protein: 1.1, carbs: 23, fat: 0.3 },
+  { id: "egg", name: "Főtt tojás", kcal: 143, protein: 13, carbs: 1.1, fat: 9.5 },
+  { id: "salmon", name: "Sült lazac", kcal: 208, protein: 20, carbs: 0, fat: 13 },
+  { id: "avocado", name: "Avokádó", kcal: 160, protein: 2, carbs: 8.5, fat: 14.7 },
+];
+
+function nutritionValue(value: number) {
+  return String(Math.round(value * 10) / 10).replace(".", ",");
+}
+
 const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "today", label: "Ma", icon: "✦" },
+  { id: "weekly", label: "Heti terv", icon: "▦" },
   { id: "meals", label: "Étkezések", icon: "◒" },
   { id: "movement", label: "Mozgás", icon: "⌁" },
   { id: "wellbeing", label: "Közérzet", icon: "◇" },
   { id: "progress", label: "Haladás", icon: "▥" },
 ];
+
+type WeeklyPlanDay = {
+  day: string;
+  food: string;
+  movement: string;
+  wellbeing: string;
+};
+
+function createWeeklyPlan(goal: ZenvyraProfile["goal"]): WeeklyPlanDay[] {
+  const foodByGoal =
+    goal === "gain"
+      ? [
+          "Tápláló reggeli és egy plusz kisétkezés",
+          "Fehérjedús ebéd teljes értékű körettel",
+          "Energiadús uzsonna gyümölccsel",
+          "Kiegyensúlyozott főétkezések",
+          "Edzés utáni tápláló étkezés",
+          "Színes, tartalmas hétvégi tányér",
+          "Nyugodt előkészület a következő hétre",
+        ]
+      : goal === "lose"
+        ? [
+            "Fehérjedús reggeli friss gyümölccsel",
+            "Zöldségekben gazdag, könnyű ebéd",
+            "Tervezett uzsonna a kapkodás helyett",
+            "Rostban gazdag, színes tányér",
+            "Könnyű vacsora elegendő fehérjével",
+            "Kedvenc étel tudatos adagban",
+            "Egyszerű előkészület a következő hétre",
+          ]
+        : [
+            "Kiegyensúlyozott reggeli",
+            "Színes ebéd sok zöldséggel",
+            "Tápláló uzsonna",
+            "Változatos fehérjeforrások",
+            "Könnyű, nyugodt vacsora",
+            "Rugalmas hétvégi étkezés",
+            "Előkészület a következő hétre",
+          ];
+
+  const movements = [
+    "20 perc könnyű átmozgatás",
+    "30 perc tempós séta",
+    "20 perc teljes testes erősítés",
+    "Pihenő vagy 10 perc nyújtás",
+    "25 perc lendületes mozgás",
+    "Szabadon választott örömmozgás",
+    "Lassú séta és regenerálódás",
+  ];
+
+  const wellbeing = [
+    "Indíts egy pohár vízzel",
+    "Tarts egy nyugodt ebédszünetet",
+    "Figyelj az energiaszintedre",
+    "Adj magadnak húsz csendes percet",
+    "Vedd észre, mi sikerült a héten",
+    "Legyen időd valamire, amit szeretsz",
+    "Készülj rá nyugodtan a következő hétre",
+  ];
+
+  return ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"].map(
+    (day, index) => ({
+      day,
+      food: foodByGoal[index],
+      movement: movements[index],
+      wellbeing: wellbeing[index],
+    }),
+  );
+}
 
 function loadSavedState(): SavedState {
   if (typeof window === "undefined") {
@@ -135,6 +235,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   const [mealType, setMealType] = useState("Reggeli");
   const [foodName, setFoodName] = useState("");
+  const [selectedFoodId, setSelectedFoodId] = useState<string | null>(null);
+  const [portionGrams, setPortionGrams] = useState("100");
   const [kcal, setKcal] = useState("");
   const [protein, setProtein] = useState("");
   const [carbs, setCarbs] = useState("");
@@ -145,6 +247,17 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
 
   const dailyGoal = profile?.daily_calorie_goal ?? 2000;
+  const weeklyPlan = useMemo(
+    () => createWeeklyPlan(profile?.goal ?? null),
+    [profile?.goal]
+  );
+  const visibleFoodPresets = useMemo(() => {
+    const query = foodName.trim().toLocaleLowerCase("hu");
+    if (!query) return commonFoods.slice(0, 6);
+    return commonFoods.filter((food) =>
+      food.name.toLocaleLowerCase("hu").includes(query)
+    );
+  }, [foodName]);
 
   useEffect(() => {
     if (!guestMode) return;
@@ -162,7 +275,6 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   useEffect(() => {
     if (!session?.user || guestMode) {
-      setCloudReady(true);
       return;
     }
 
@@ -338,11 +450,32 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   function openMealModal() {
     setMealType("Reggeli");
     setFoodName("");
+    setSelectedFoodId(null);
+    setPortionGrams("100");
     setKcal("");
     setProtein("");
     setCarbs("");
     setFat("");
     setMealModalOpen(true);
+  }
+
+  function applyFoodPreset(food: FoodPreset, grams: number) {
+    const ratio = grams / 100;
+    setFoodName(food.name);
+    setSelectedFoodId(food.id);
+    setPortionGrams(nutritionValue(grams));
+    setKcal(nutritionValue(food.kcal * ratio));
+    setProtein(nutritionValue(food.protein * ratio));
+    setCarbs(nutritionValue(food.carbs * ratio));
+    setFat(nutritionValue(food.fat * ratio));
+  }
+
+  function updatePortion(value: string) {
+    setPortionGrams(value);
+    const grams = Number(value.replace(",", "."));
+    const food = commonFoods.find((item) => item.id === selectedFoodId);
+    if (!food || !Number.isFinite(grams) || grams <= 0) return;
+    applyFoodPreset(food, grams);
   }
 
   async function addMeal(event: FormEvent<HTMLFormElement>) {
@@ -493,6 +626,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <div className="dashboard-eyebrow">
               {view === "today"
                 ? "MAI EGYENSÚLY"
+                : view === "weekly"
+                  ? "HETI RITMUS"
                 : view === "meals"
                   ? "TÁPLÁLKOZÁS"
                   : view === "movement"
@@ -505,6 +640,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <h1>
               {view === "today"
                 ? "Jó, hogy itt vagy."
+                : view === "weekly"
+                  ? "A heted, könnyebben."
                 : view === "meals"
                   ? "Mai étkezéseid"
                   : view === "movement"
@@ -517,6 +654,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <p>
               {view === "today"
                 ? "Ma is elég egy-két jó döntés."
+                : view === "weekly"
+                  ? "Egy gyengéd iránytű, amit a saját napjaidhoz igazíthatsz."
                 : view === "meals"
                   ? "Átláthatóan, felesleges bonyolítás nélkül."
                   : view === "movement"
@@ -740,6 +879,61 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   Mai mozgás →
                 </button>
               </article>
+            </section>
+          </>
+        )}
+
+        {view === "weekly" && (
+          <>
+            <section className="weekly-plan-intro">
+              <div>
+                <span className="card-kicker">SZEMÉLYRE SZABOTT ALAP</span>
+                <h2>A te heti egyensúlyod</h2>
+                <p>
+                  A terved a célodhoz igazodik, de nem kötelező lista. Cserélj
+                  fel napokat, és válaszd azt, ami most belefér.
+                </p>
+              </div>
+              <div className="weekly-plan-goal">
+                <span>NAPI KIINDULÓPONT</span>
+                <strong>{dailyGoal} kcal</strong>
+                <small>étkezés · mozgás · közérzet</small>
+              </div>
+            </section>
+
+            <section className="weekly-plan-grid" aria-label="Heti terv">
+              {weeklyPlan.map((item, index) => (
+                <article className="dashboard-card weekly-day-card" key={item.day}>
+                  <div className="weekly-day-heading">
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <h2>{item.day}</h2>
+                  </div>
+
+                  <div className="weekly-day-items">
+                    <div>
+                      <i className="weekly-dot food-dot">◒</i>
+                      <p>
+                        <span>Étkezési fókusz</span>
+                        <strong>{item.food}</strong>
+                      </p>
+                    </div>
+                    <div>
+                      <i className="weekly-dot movement-dot">⌁</i>
+                      <p>
+                        <span>Mozgás</span>
+                        <strong>{item.movement}</strong>
+                      </p>
+                    </div>
+                    <div>
+                      <i className="weekly-dot wellbeing-dot">♡</i>
+                      <p>
+                        <span>Jóllét</span>
+                        <strong>{item.wellbeing}</strong>
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              ))}
             </section>
           </>
         )}
@@ -984,14 +1178,52 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               </label>
 
               <label>
-                <span>Mit ettél?</span>
+                <span>Keress egy ételt</span>
                 <input
                   value={foodName}
-                  onChange={(event) => setFoodName(event.target.value)}
-                  placeholder="pl. Csirkés saláta"
+                  onChange={(event) => {
+                    setFoodName(event.target.value);
+                    setSelectedFoodId(null);
+                  }}
+                  placeholder="pl. csirkemell, rizs, joghurt"
                   autoFocus
                 />
               </label>
+
+              {visibleFoodPresets.length > 0 && (
+                <div className="food-preset-list" aria-label="Ételjavaslatok">
+                  {visibleFoodPresets.map((food) => (
+                    <button
+                      type="button"
+                      key={food.id}
+                      className={selectedFoodId === food.id ? "active" : ""}
+                      onClick={() => applyFoodPreset(food, 100)}
+                    >
+                      <span>{food.name}</span>
+                      <small>{food.kcal} kcal / 100 g</small>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedFoodId && (
+                <label className="portion-field">
+                  <span>Adag</span>
+                  <div className="input-unit">
+                    <input
+                      value={portionGrams}
+                      onChange={(event) => updatePortion(event.target.value)}
+                      inputMode="decimal"
+                      aria-describedby="nutrition-estimate-note"
+                    />
+                    <b>g</b>
+                  </div>
+                </label>
+              )}
+
+              <p className="nutrition-estimate-note" id="nutrition-estimate-note">
+                A tápértékek tájékoztató becslések. Saját ételnél írd be kézzel az adatokat.
+              </p>
 
               <div className="form-grid-2">
                 <label>
