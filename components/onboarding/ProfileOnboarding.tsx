@@ -36,6 +36,11 @@ type Props = {
 
 type Step = 1 | 2 | 3;
 
+const biologicalSexOptions = [
+  { id: "female", label: "Nő" },
+  { id: "male", label: "Férfi" },
+] as const;
+
 const activityOptions = [
   {
     id: "low",
@@ -316,19 +321,14 @@ export default function ProfileOnboarding({
                 <label>
                   <span>Biológiai nem</span>
                   <div className="choice-grid">
-                    {[
-                      ["female", "Nő"],
-                      ["male", "Férfi"],
-                    ].map(([value, label]) => (
+                    {biologicalSexOptions.map((option) => (
                       <button
                         type="button"
-                        key={value}
-                        className={sex === value ? "active" : ""}
-                        onClick={() =>
-                          setSex(value as "female" | "male")
-                        }
+                        key={option.id}
+                        className={sex === option.id ? "active" : ""}
+                        onClick={() => setSex(option.id)}
                       >
-                        {label}
+                        {option.label}
                       </button>
                     ))}
                   </div>
