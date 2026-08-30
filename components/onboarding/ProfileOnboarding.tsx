@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase/client";
 export type ZenvyraProfile = {
   id: string;
   display_name: string;
-  sex: "female" | "male" | "other" | null;
+  sex: "female" | "male" | null;
   age: number | null;
   height_cm: number | null;
   current_weight_kg: number | null;
@@ -83,7 +83,7 @@ export default function ProfileOnboarding({
   const [displayName, setDisplayName] = useState(
     initialProfile?.display_name || metadataName || ""
   );
-  const [sex, setSex] = useState<"female" | "male" | "other">(
+  const [sex, setSex] = useState<"female" | "male">(
     initialProfile?.sex || "female"
   );
   const [age, setAge] = useState(
@@ -125,7 +125,7 @@ export default function ProfileOnboarding({
       return null;
     }
 
-    const sexConstant = sex === "male" ? 5 : sex === "female" ? -161 : -78;
+    const sexConstant = sex === "male" ? 5 : -161;
     const bmr = 10 * weightN + 6.25 * heightN - 5 * ageN + sexConstant;
     const activityFactor =
       activityOptions.find((item) => item.id === activity)?.factor ?? 1.375;
@@ -314,25 +314,25 @@ export default function ProfileOnboarding({
                 </div>
 
                 <label>
-                  <span>Biológiai nem a becsléshez</span>
-                  <div className="choice-grid three">
+                  <span>Biológiai nem</span>
+                  <div className="choice-grid">
                     {[
                       ["female", "Nő"],
                       ["male", "Férfi"],
-                      ["other", "Egyéb"],
                     ].map(([value, label]) => (
                       <button
                         type="button"
                         key={value}
                         className={sex === value ? "active" : ""}
                         onClick={() =>
-                          setSex(value as "female" | "male" | "other")
+                          setSex(value as "female" | "male")
                         }
                       >
                         {label}
                       </button>
                     ))}
                   </div>
+                  <small className="field-help">A napi energiaszükséglet pontosabb becsléséhez használjuk.</small>
                 </label>
 
                 <label>
