@@ -41,12 +41,18 @@ type FoodPreset = {
   fat: number;
 };
 
+type WeightEntry = {
+  date: string;
+  weight: number;
+};
+
 type SavedState = {
   meals: Meal[];
   water: number;
   movementDone: boolean;
   mood: number;
   weight: number;
+  weightHistory: WeightEntry[];
 };
 
 const STORAGE_KEY = "zenvyra_dashboard_v1";
@@ -181,6 +187,25 @@ function nutritionValue(value: number) {
   return String(Math.round(value * 10) / 10).replace(".", ",");
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function lastSevenDays() {
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - index));
+    return {
+      date: localDateKey(date),
+      label: ["V", "H", "K", "Sze", "Cs", "P", "Szo"][date.getDay()],
+    };
+  });
+}
+
 const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "today", label: "Ma", icon: "✦" },
   { id: "weekly", label: "Heti terv", icon: "▦" },
@@ -268,6 +293,7 @@ function loadSavedState(): SavedState {
       movementDone: false,
       mood: 4,
       weight: 68.4,
+      weightHistory: [{ date: localDateKey(), weight: 68.4 }],
     };
   }
 
@@ -281,6 +307,7 @@ function loadSavedState(): SavedState {
         movementDone: false,
         mood: 4,
         weight: 68.4,
+        weightHistory: [{ date: localDateKey(), weight: 68.4 }],
       };
     }
 
@@ -293,6 +320,15 @@ function loadSavedState(): SavedState {
         typeof saved.movementDone === "boolean" ? saved.movementDone : false,
       mood: typeof saved.mood === "number" ? saved.mood : 4,
       weight: typeof saved.weight === "number" ? saved.weight : 68.4,
+      weightHistory: Array.isArray(saved.weightHistory)
+        ? saved.weightHistory
+            .filter(
+              (entry): entry is WeightEntry =>
+                typeof entry?.date === "string" &&
+                typeof entry?.weight === "number",
+            )
+            .slice(-30)
+        : [{ date: localDateKey(), weight: 68.4 }],
     };
   } catch {
     return {
@@ -301,6 +337,7 @@ function loadSavedState(): SavedState {
       movementDone: false,
       mood: 4,
       weight: 68.4,
+      weightHistory: [{ date: localDateKey(), weight: 68.4 }],
     };
   }
 }
@@ -319,6 +356,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [movementDone, setMovementDone] = useState(initial.movementDone);
   const [mood, setMood] = useState(initial.mood);
   const [weight, setWeight] = useState(profile?.current_weight_kg ?? initial.weight);
+  const [weightHistory, setWeightHistory] = useState<WeightEntry[]>(
+    guestMode ? initial.weightHistory : [],
+  );
   const [challengeProgress, setChallengeProgress] =
     useState<ChallengeProgress>(initialChallenges);
 
@@ -362,10 +402,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       movementDone,
       mood,
       weight,
+      weightHistory,
     };
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  }, [guestMode, meals, water, movementDone, mood, weight]);
+  }, [guestMode, meals, water, movementDone, mood, weight, weightHistory]);
 
   useEffect(() => {
     const snapshot: StoredChallenges = {
@@ -395,7 +436,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       setCloudReady(false);
       setCloudMessage("");
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localDateKey();
+      const sevenDaysAgo = lastSevenDays()[0].date;
 
       const [mealsResult, waterResult, weightResult, wellbeingResult, movementResult] =
         await Promise.all([
@@ -410,10 +452,10 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             .eq("logged_on", today),
           supabase
             .from("weight_logs")
-            .select("weight_kg")
-            .order("logged_on", { ascending: false })
-            .order("created_at", { ascending: false })
-            .limit(1),
+            .select("weight_kg, logged_on, created_at")
+            .gte("logged_on", sevenDaysAgo)
+            .order("logged_on", { ascending: true })
+            .order("created_at", { ascending: true }),
           supabase
             .from("wellbeing_logs")
             .select("mood")
@@ -462,8 +504,19 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )
       );
 
-      if (weightResult.data?.[0]) {
-        const nextWeight = Number(weightResult.data[0].weight_kg);
+      const cloudWeightHistory = Array.from(
+        new Map(
+          (weightResult.data ?? []).map((row) => [
+            row.logged_on,
+            { date: row.logged_on, weight: Number(row.weight_kg) },
+          ]),
+        ).values(),
+      );
+      setWeightHistory(cloudWeightHistory);
+
+      const latestWeight = cloudWeightHistory.at(-1);
+      if (latestWeight) {
+        const nextWeight = latestWeight.weight;
         setWeight(nextWeight);
         setQuickWeight(nextWeight.toFixed(1).replace(".", ","));
       }
@@ -506,6 +559,43 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
 
   const waterPercent = Math.min(100, Math.round((water / 2000) * 100));
+
+  const weightChart = useMemo(() => {
+    const historyByDate = new Map(weightHistory.map((entry) => [entry.date, entry.weight]));
+    const points = lastSevenDays().map((day) => ({
+      ...day,
+      weight: historyByDate.get(day.date) ?? null,
+    }));
+    const measured = points.filter(
+      (point): point is typeof point & { weight: number } => point.weight !== null,
+    );
+    const values = measured.map((point) => point.weight);
+    const minimum = values.length ? Math.min(...values) : 0;
+    const maximum = values.length ? Math.max(...values) : 0;
+    const range = Math.max(maximum - minimum, 0.5);
+
+    return {
+      points: points.map((point) => ({
+        ...point,
+        height:
+          point.weight === null
+            ? 0
+            : 28 + ((point.weight - minimum) / range) * 62,
+      })),
+      measured,
+      change:
+        measured.length >= 2
+          ? Number((measured.at(-1)!.weight - measured[0].weight).toFixed(1))
+          : null,
+    };
+  }, [weightHistory]);
+
+  const goalProgress = useMemo(() => {
+    const start = profile?.current_weight_kg;
+    const target = profile?.target_weight_kg;
+    if (!start || !target || start === target) return null;
+    return Math.max(0, Math.min(100, Math.round(((start - weight) / (start - target)) * 100)));
+  }, [profile?.current_weight_kg, profile?.target_weight_kg, weight]);
 
   async function addWater(amount: number) {
     if (guestMode || !session?.user) {
@@ -679,6 +769,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
     setWeight(next);
     setQuickWeight(next.toFixed(1).replace(".", ","));
+    setWeightHistory((current) => {
+      const today = localDateKey();
+      return [
+        ...current.filter((entry) => entry.date !== today),
+        { date: today, weight: next },
+      ].slice(-30);
+    });
   }
 
   function resetDemoData() {
@@ -687,6 +784,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setMovementDone(false);
     setMood(4);
     setWeight(68.4);
+    setWeightHistory([{ date: localDateKey(), weight: 68.4 }]);
     setQuickWeight("68,4");
   }
 
@@ -1236,8 +1334,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )}
 
         {view === "progress" && (
-          <section className="dashboard-content-grid">
-            <article className="dashboard-card progress-card">
+          <>
+            <section className="progress-summary-grid">
+              <article className="dashboard-card progress-card">
               <span className="card-kicker">TESTSÚLY</span>
               <h2>{weight.toFixed(1).replace(".", ",")} kg</h2>
               <p>
@@ -1288,33 +1387,77 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   + 0,1
                 </button>
               </div>
-            </article>
+              </article>
 
-            <article className="dashboard-card chart-card">
+              <article className="dashboard-card progress-insight-card">
+                <span className="card-kicker">HETI VÁLTOZÁS</span>
+                <strong>
+                  {weightChart.change === null
+                    ? "Még nincs elég adat"
+                    : `${weightChart.change > 0 ? "+" : ""}${weightChart.change
+                        .toFixed(1)
+                        .replace(".", ",")} kg`}
+                </strong>
+                <p>
+                  {weightChart.change === null
+                    ? "Két külön napon rögzített érték után már látható lesz a változás."
+                    : Math.abs(weightChart.change) < 0.2
+                      ? "A testsúlyod ezen a héten stabil maradt."
+                      : "Ez egy heti pillanatkép — a hosszabb távú irány számít igazán."}
+                </p>
+              </article>
+
+              <article className="dashboard-card progress-insight-card goal-card">
+                <span className="card-kicker">CÉL FELÉ</span>
+                <strong>{goalProgress === null ? "Saját ritmusban" : `${goalProgress}%`}</strong>
+                <p>
+                  {goalProgress === null
+                    ? "A következetes rögzítés segít tisztábban látni a saját utadat."
+                    : "Az induló értékedhez és a megadott célodhoz viszonyítva."}
+                </p>
+                {goalProgress !== null && (
+                  <div className="goal-progress-track" aria-label={`${goalProgress}% a cél felé`}>
+                    <i style={{ width: `${goalProgress}%` }} />
+                  </div>
+                )}
+              </article>
+            </section>
+
+            <article className="dashboard-card chart-card progress-chart-card">
               <span className="card-kicker">7 NAP</span>
-              <h2>Haladás</h2>
+              <h2>Testsúlytrend</h2>
 
               <div className="mini-chart" aria-label="Súlytrend">
-                {[72, 64, 68, 58, 61, 52, 48].map((height, index) => (
-                  <i
-                    key={index}
-                    style={{ height: `${height}%` }}
-                    title={`Nap ${index + 1}`}
-                  />
+                {weightChart.points.map((point) => (
+                  <div className="chart-column" key={point.date}>
+                    {point.weight !== null && (
+                      <span>{point.weight.toFixed(1).replace(".", ",")}</span>
+                    )}
+                    <i
+                      className={point.weight === null ? "empty" : ""}
+                      style={{ height: `${point.height || 8}%` }}
+                      title={
+                        point.weight === null
+                          ? `${point.date}: nincs adat`
+                          : `${point.date}: ${point.weight.toFixed(1)} kg`
+                      }
+                    />
+                  </div>
                 ))}
               </div>
 
               <div className="chart-days">
-                <span>H</span>
-                <span>K</span>
-                <span>Sze</span>
-                <span>Cs</span>
-                <span>P</span>
-                <span>Szo</span>
-                <span>V</span>
+                {weightChart.points.map((point) => (
+                  <span key={point.date}>{point.label}</span>
+                ))}
               </div>
+              {weightChart.measured.length === 0 && (
+                <p className="chart-empty-note">
+                  Rögzíts egy testsúlyt, és itt megjelenik az első valódi pontod.
+                </p>
+              )}
             </article>
-          </section>
+          </>
         )}
       </section>
 

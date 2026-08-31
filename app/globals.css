@@ -1510,6 +1510,55 @@ button {
   font-size: 52px;
 }
 
+.progress-summary-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.9fr 0.9fr;
+  gap: 20px;
+}
+
+.progress-insight-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.progress-insight-card > strong {
+  display: block;
+  margin-top: 18px;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(29px, 3vw, 42px);
+  font-weight: 600;
+}
+
+.progress-insight-card p {
+  margin: 13px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.goal-card {
+  background: linear-gradient(145deg, #fffdfc, #f7f0fa);
+}
+
+.goal-progress-track {
+  height: 8px;
+  margin-top: auto;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eee7f1;
+}
+
+.goal-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff8f7f, #a96bc4);
+}
+
+.progress-chart-card {
+  margin-top: 20px;
+}
+
 .weight-buttons {
   display: flex;
   gap: 10px;
@@ -1527,20 +1576,48 @@ button {
   border-bottom: 1px solid rgba(76, 48, 92, 0.1);
 }
 
-.mini-chart i {
+.chart-column {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.chart-column span {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.chart-column i {
   width: 100%;
   max-width: 42px;
-  min-height: 15%;
   border-radius: 12px 12px 4px 4px;
   background: linear-gradient(180deg, #bd9be4, #f189a5);
+  transition: height 220ms ease;
+}
+
+.chart-column i.empty {
+  height: 8% !important;
+  background: #eee8f0;
 }
 
 .chart-days {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
   padding: 9px 8px 0;
   color: var(--muted-2);
   font-size: 12px;
+  text-align: center;
+}
+
+.chart-empty-note {
+  margin: 22px 0 0;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* =========================================================
@@ -1610,6 +1687,14 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .progress-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .progress-card {
+    grid-column: 1 / -1;
+  }
+
   .weekly-day-card:last-child {
     grid-column: auto;
   }
@@ -1668,6 +1753,14 @@ button {
   .dashboard-content-grid,
   .lower-grid {
     grid-template-columns: 1fr;
+  }
+
+  .progress-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-card {
+    grid-column: auto;
   }
 
   .movement-grid {
