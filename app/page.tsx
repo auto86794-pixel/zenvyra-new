@@ -138,11 +138,11 @@ export default function HomePage() {
 
         <div className="hero-content">
           <div className="brand">
-            <div className="lotus" aria-hidden="true">
-              <span>◡</span>
-              <span>◇</span>
-              <span>◡</span>
-            </div>
+            <img
+              src="/zenvyra-lotus.png"
+              alt="ZENVYRA"
+              className="brand-logo"
+            />
 
             <div>
               <div className="brand-name">ZENVYRA</div>
@@ -162,6 +162,7 @@ export default function HomePage() {
             </h1>
 
             <div className="hero-line" />
+
             <p>Táplálkozás, mozgás és közérzet harmóniában.</p>
           </div>
 
