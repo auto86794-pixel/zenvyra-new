@@ -5,11 +5,16 @@ import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabase/client";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
+import RecipesView, {
+  type Recipe,
+  type RecipeIngredient,
+} from "@/components/dashboard/RecipesView";
 
 type View =
   | "today"
   | "weekly"
   | "shopping"
+  | "recipes"
   | "challenges"
   | "meals"
   | "movement"
@@ -59,6 +64,7 @@ type SavedState = {
 const STORAGE_KEY = "zenvyra_dashboard_v1";
 const CHALLENGE_STORAGE_PREFIX = "zenvyra_challenges_v1";
 const SHOPPING_STORAGE_PREFIX = "zenvyra_shopping_v1";
+const RECIPE_STORAGE_PREFIX = "zenvyra_recipes_v1";
 
 type ShoppingItem = {
   id: string;
@@ -278,6 +284,7 @@ const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "today", label: "Ma", icon: "✦" },
   { id: "weekly", label: "Heti terv", icon: "▦" },
   { id: "shopping", label: "Bevásárlás", icon: "⌑" },
+  { id: "recipes", label: "Receptek", icon: "◉" },
   { id: "challenges", label: "Kihívások", icon: "✓" },
   { id: "meals", label: "Étkezések", icon: "◒" },
   { id: "movement", label: "Mozgás", icon: "⌁" },
@@ -415,6 +422,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const initial = useMemo(() => loadSavedState(), []);
   const challengeStorageKey = `${CHALLENGE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const shoppingStorageKey = `${SHOPPING_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const recipeStorageKey = `${RECIPE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const initialChallenges = useMemo(
     () => loadChallengeProgress(challengeStorageKey),
     [challengeStorageKey],
@@ -559,6 +567,25 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   function removeShoppingItem(itemId: string) {
     setCustomShoppingItems((current) => current.filter((item) => item.id !== itemId));
     setCheckedShoppingItems((current) => current.filter((id) => id !== itemId));
+  }
+
+  function addRecipeIngredientsToShopping(ingredients: RecipeIngredient[]) {
+    const knownNames = new Set(
+      shoppingItems.map((item) => item.name.trim().toLocaleLowerCase("hu")),
+    );
+    const additions = ingredients
+      .filter((ingredient) => !knownNames.has(ingredient.name.trim().toLocaleLowerCase("hu")))
+      .map((ingredient, index): ShoppingItem => ({
+        id: `recipe-item-${Date.now()}-${index}`,
+        category: "Recept hozzávalói",
+        name: ingredient.name,
+        amount: ingredient.amount,
+        custom: true,
+      }));
+    if (additions.length) {
+      setCustomShoppingItems((current) => [...current, ...additions]);
+    }
+    return additions.length;
   }
 
   useEffect(() => {
@@ -870,6 +897,45 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setMealModalOpen(false);
   }
 
+  async function addRecipeToMeals(recipe: Recipe, portions: number) {
+    const ratio = portions / recipe.servings;
+    const draft = {
+      type: "Főétkezés",
+      food: `${recipe.name} (${String(portions).replace(".", ",")} adag)`,
+      kcal: Math.round(recipe.kcal * ratio),
+      protein: Math.round(recipe.protein * ratio),
+      carbs: Math.round(recipe.carbs * ratio),
+      fat: Math.round(recipe.fat * ratio),
+    };
+
+    if (guestMode || !session?.user) {
+      setMeals((current) => [...current, { id: `guest-recipe-${Date.now()}`, ...draft }]);
+      return true;
+    }
+
+    const { data, error } = await supabase
+      .from("meals")
+      .insert({
+        user_id: session.user.id,
+        meal_type: draft.type,
+        food_name: draft.food,
+        kcal: draft.kcal,
+        protein_g: draft.protein,
+        carbs_g: draft.carbs,
+        fat_g: draft.fat,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      setCloudMessage("A recept étkezéshez adása nem sikerült.");
+      return false;
+    }
+
+    setMeals((current) => [...current, { id: data.id, ...draft }]);
+    return true;
+  }
+
   async function deleteMeal(id: string) {
     if (!guestMode && session?.user && !id.startsWith("demo-")) {
       const { error } = await supabase.from("meals").delete().eq("id", id);
@@ -975,6 +1041,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   ? "HETI RITMUS"
                 : view === "shopping"
                   ? "HETI ELŐKÉSZÜLET"
+                : view === "recipes"
+                  ? "SAJÁT KONYHÁD"
                 : view === "challenges"
                   ? "KIS LÉPÉSEK"
                 : view === "meals"
@@ -993,6 +1061,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   ? "A heted, könnyebben."
                 : view === "shopping"
                   ? "Minden egy helyen."
+                : view === "recipes"
+                  ? "A kedvenceid, okosabban."
                 : view === "challenges"
                   ? "A saját tempódban."
                 : view === "meals"
@@ -1011,6 +1081,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   ? "Egy gyengéd iránytű, amit a saját napjaidhoz igazíthatsz."
                 : view === "shopping"
                   ? "A heti tervedhez igazított lista, amit menet közben is bővíthetsz."
+                : view === "recipes"
+                  ? "Mentsd el egyszer, számold újra bármilyen adaghoz."
                 : view === "challenges"
                   ? "Válassz apró célokat, és vedd észre minden lépésedet."
                 : view === "meals"
@@ -1380,6 +1452,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               </aside>
             </div>
           </>
+        )}
+
+        {view === "recipes" && (
+          <RecipesView
+            storageKey={recipeStorageKey}
+            onAddMeal={addRecipeToMeals}
+            onAddShopping={addRecipeIngredientsToShopping}
+          />
         )}
 
         {view === "challenges" && (
