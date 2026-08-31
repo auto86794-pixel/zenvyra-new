@@ -9,6 +9,7 @@ import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
 type View =
   | "today"
   | "weekly"
+  | "shopping"
   | "challenges"
   | "meals"
   | "movement"
@@ -57,6 +58,21 @@ type SavedState = {
 
 const STORAGE_KEY = "zenvyra_dashboard_v1";
 const CHALLENGE_STORAGE_PREFIX = "zenvyra_challenges_v1";
+const SHOPPING_STORAGE_PREFIX = "zenvyra_shopping_v1";
+
+type ShoppingItem = {
+  id: string;
+  category: string;
+  name: string;
+  amount: string;
+  custom?: boolean;
+};
+
+type StoredShopping = {
+  week: string;
+  checked: string[];
+  customItems: ShoppingItem[];
+};
 
 type ChallengeId = "water" | "movement" | "balanced";
 type ChallengeProgress = Record<ChallengeId, boolean[]>;
@@ -142,6 +158,58 @@ function loadChallengeProgress(storageKey: string): ChallengeProgress {
   }
 }
 
+function createShoppingList(goal: ZenvyraProfile["goal"]): ShoppingItem[] {
+  const goalItems: ShoppingItem[] =
+    goal === "gain"
+      ? [
+          { id: "oats", category: "Kamra", name: "Zabpehely", amount: "750 g" },
+          { id: "rice", category: "Kamra", name: "Rizs vagy bulgur", amount: "1 kg" },
+          { id: "nuts", category: "Kamra", name: "Mandula vagy dió", amount: "250 g" },
+          { id: "avocado", category: "Zöldség és gyümölcs", name: "Avokádó", amount: "3 db" },
+        ]
+      : goal === "lose"
+        ? [
+            { id: "oats", category: "Kamra", name: "Zabpehely", amount: "500 g" },
+            { id: "rice", category: "Kamra", name: "Barna rizs vagy bulgur", amount: "500 g" },
+            { id: "berries", category: "Zöldség és gyümölcs", name: "Bogyós gyümölcs", amount: "400 g" },
+            { id: "greens", category: "Zöldség és gyümölcs", name: "Leveles saláta", amount: "2 csomag" },
+          ]
+        : [
+            { id: "oats", category: "Kamra", name: "Zabpehely", amount: "500 g" },
+            { id: "rice", category: "Kamra", name: "Rizs vagy bulgur", amount: "500 g" },
+            { id: "fruit", category: "Zöldség és gyümölcs", name: "Szezonális gyümölcs", amount: "7 adag" },
+            { id: "greens", category: "Zöldség és gyümölcs", name: "Leveles saláta", amount: "1 csomag" },
+          ];
+
+  return [
+    { id: "chicken", category: "Fehérjeforrások", name: "Csirkemell vagy tofu", amount: "700 g" },
+    { id: "fish", category: "Fehérjeforrások", name: "Lazac vagy más hal", amount: "2 adag" },
+    { id: "eggs", category: "Fehérjeforrások", name: "Tojás", amount: "10 db" },
+    { id: "yogurt", category: "Hűtő", name: "Natúr görög joghurt", amount: "4 adag" },
+    { id: "cottage", category: "Hűtő", name: "Túró vagy cottage cheese", amount: "500 g" },
+    { id: "vegetables", category: "Zöldség és gyümölcs", name: "Vegyes friss zöldség", amount: "7 adag" },
+    { id: "olive-oil", category: "Kamra", name: "Olívaolaj", amount: "1 üveg" },
+    ...goalItems,
+  ];
+}
+
+function loadShoppingState(storageKey: string): Pick<StoredShopping, "checked" | "customItems"> {
+  if (typeof window === "undefined") return { checked: [], customItems: [] };
+
+  try {
+    const saved = JSON.parse(
+      window.localStorage.getItem(storageKey) ?? "null",
+    ) as StoredShopping | null;
+    if (saved?.week !== currentWeekKey()) return { checked: [], customItems: [] };
+    return {
+      checked: Array.isArray(saved.checked) ? saved.checked : [],
+      customItems: Array.isArray(saved.customItems) ? saved.customItems : [],
+    };
+  } catch {
+    return { checked: [], customItems: [] };
+  }
+}
+
 const initialMeals: Meal[] = [
   {
     id: "demo-1",
@@ -209,6 +277,7 @@ function lastSevenDays() {
 const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "today", label: "Ma", icon: "✦" },
   { id: "weekly", label: "Heti terv", icon: "▦" },
+  { id: "shopping", label: "Bevásárlás", icon: "⌑" },
   { id: "challenges", label: "Kihívások", icon: "✓" },
   { id: "meals", label: "Étkezések", icon: "◒" },
   { id: "movement", label: "Mozgás", icon: "⌁" },
@@ -345,9 +414,14 @@ function loadSavedState(): SavedState {
 export default function Dashboard({ onSignOut, session = null, guestMode = false, profile = null }: Props) {
   const initial = useMemo(() => loadSavedState(), []);
   const challengeStorageKey = `${CHALLENGE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const shoppingStorageKey = `${SHOPPING_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const initialChallenges = useMemo(
     () => loadChallengeProgress(challengeStorageKey),
     [challengeStorageKey],
+  );
+  const initialShopping = useMemo(
+    () => loadShoppingState(shoppingStorageKey),
+    [shoppingStorageKey],
   );
 
   const [view, setView] = useState<View>("today");
@@ -361,6 +435,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
   const [challengeProgress, setChallengeProgress] =
     useState<ChallengeProgress>(initialChallenges);
+  const [checkedShoppingItems, setCheckedShoppingItems] = useState<string[]>(
+    initialShopping.checked,
+  );
+  const [customShoppingItems, setCustomShoppingItems] = useState<ShoppingItem[]>(
+    initialShopping.customItems,
+  );
+  const [newShoppingItem, setNewShoppingItem] = useState("");
 
   const [mealModalOpen, setMealModalOpen] = useState(false);
   const [quickModalOpen, setQuickModalOpen] = useState(false);
@@ -385,6 +466,21 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     () => createWeeklyPlan(profile?.goal ?? null),
     [profile?.goal]
   );
+  const generatedShoppingItems = useMemo(
+    () => createShoppingList(profile?.goal ?? null),
+    [profile?.goal],
+  );
+  const shoppingItems = useMemo(
+    () => [...generatedShoppingItems, ...customShoppingItems],
+    [generatedShoppingItems, customShoppingItems],
+  );
+  const shoppingGroups = useMemo(() => {
+    const groups = new Map<string, ShoppingItem[]>();
+    for (const item of shoppingItems) {
+      groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
+    }
+    return Array.from(groups.entries());
+  }, [shoppingItems]);
   const visibleFoodPresets = useMemo(() => {
     const query = foodName.trim().toLocaleLowerCase("hu");
     if (!query) return commonFoods.slice(0, 6);
@@ -416,6 +512,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     window.localStorage.setItem(challengeStorageKey, JSON.stringify(snapshot));
   }, [challengeProgress, challengeStorageKey]);
 
+  useEffect(() => {
+    const snapshot: StoredShopping = {
+      week: currentWeekKey(),
+      checked: checkedShoppingItems,
+      customItems: customShoppingItems,
+    };
+    window.localStorage.setItem(shoppingStorageKey, JSON.stringify(snapshot));
+  }, [checkedShoppingItems, customShoppingItems, shoppingStorageKey]);
+
   function toggleChallengeDay(challengeId: ChallengeId, dayIndex: number) {
     setChallengeProgress((current) => ({
       ...current,
@@ -423,6 +528,37 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         index === dayIndex ? !done : done,
       ),
     }));
+  }
+
+  function toggleShoppingItem(itemId: string) {
+    setCheckedShoppingItems((current) =>
+      current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId],
+    );
+  }
+
+  function addShoppingItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newShoppingItem.trim();
+    if (!name) return;
+
+    setCustomShoppingItems((current) => [
+      ...current,
+      {
+        id: `custom-${Date.now()}`,
+        category: "Saját tételek",
+        name,
+        amount: "",
+        custom: true,
+      },
+    ]);
+    setNewShoppingItem("");
+  }
+
+  function removeShoppingItem(itemId: string) {
+    setCustomShoppingItems((current) => current.filter((item) => item.id !== itemId));
+    setCheckedShoppingItems((current) => current.filter((id) => id !== itemId));
   }
 
   useEffect(() => {
@@ -837,6 +973,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "MAI EGYENSÚLY"
                 : view === "weekly"
                   ? "HETI RITMUS"
+                : view === "shopping"
+                  ? "HETI ELŐKÉSZÜLET"
                 : view === "challenges"
                   ? "KIS LÉPÉSEK"
                 : view === "meals"
@@ -853,6 +991,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "Jó, hogy itt vagy."
                 : view === "weekly"
                   ? "A heted, könnyebben."
+                : view === "shopping"
+                  ? "Minden egy helyen."
                 : view === "challenges"
                   ? "A saját tempódban."
                 : view === "meals"
@@ -869,6 +1009,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "Ma is elég egy-két jó döntés."
                 : view === "weekly"
                   ? "Egy gyengéd iránytű, amit a saját napjaidhoz igazíthatsz."
+                : view === "shopping"
+                  ? "A heti tervedhez igazított lista, amit menet közben is bővíthetsz."
                 : view === "challenges"
                   ? "Válassz apró célokat, és vedd észre minden lépésedet."
                 : view === "meals"
@@ -1150,6 +1292,93 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 </article>
               ))}
             </section>
+          </>
+        )}
+
+        {view === "shopping" && (
+          <>
+            <section className="shopping-intro">
+              <div>
+                <span className="card-kicker">AUTOMATIKUS HETI LISTA</span>
+                <h2>Kevesebb tervezés, nyugodtabb hét.</h2>
+                <p>
+                  Az alaplista a heti étkezési fókuszodhoz és a célodhoz igazodik.
+                  Ami már otthon van, egyszerűen pipáld ki.
+                </p>
+              </div>
+              <div className="shopping-progress-orb">
+                <strong>{checkedShoppingItems.filter((id) => shoppingItems.some((item) => item.id === id)).length}</strong>
+                <span>/ {shoppingItems.length} kész</span>
+              </div>
+            </section>
+
+            <div className="shopping-layout">
+              <section className="shopping-groups" aria-label="Heti bevásárlólista">
+                {shoppingGroups.map(([category, items]) => (
+                  <article className="dashboard-card shopping-group" key={category}>
+                    <div className="shopping-group-heading">
+                      <h2>{category}</h2>
+                      <span>{items.filter((item) => checkedShoppingItems.includes(item.id)).length}/{items.length}</span>
+                    </div>
+                    <div className="shopping-items">
+                      {items.map((item) => {
+                        const checked = checkedShoppingItems.includes(item.id);
+                        return (
+                          <div className={checked ? "shopping-item checked" : "shopping-item"} key={item.id}>
+                            <button
+                              type="button"
+                              className="shopping-check"
+                              aria-pressed={checked}
+                              aria-label={`${item.name} ${checked ? "visszaállítása" : "kipipálása"}`}
+                              onClick={() => toggleShoppingItem(item.id)}
+                            >
+                              {checked ? "✓" : ""}
+                            </button>
+                            <button
+                              type="button"
+                              className="shopping-item-name"
+                              onClick={() => toggleShoppingItem(item.id)}
+                            >
+                              {item.name}
+                            </button>
+                            {item.amount && <span>{item.amount}</span>}
+                            {item.custom && (
+                              <button
+                                type="button"
+                                className="shopping-remove"
+                                aria-label={`${item.name} törlése`}
+                                onClick={() => removeShoppingItem(item.id)}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </article>
+                ))}
+              </section>
+
+              <aside className="dashboard-card shopping-add-card">
+                <span className="card-kicker">SAJÁT TÉTEL</span>
+                <h2>Valami még hiányzik?</h2>
+                <p>Add hozzá, és ezen a heti listán marad.</p>
+                <form onSubmit={addShoppingItem}>
+                  <input
+                    value={newShoppingItem}
+                    onChange={(event) => setNewShoppingItem(event.target.value)}
+                    placeholder="Például citrom"
+                    aria-label="Új bevásárlólista tétel"
+                  />
+                  <button type="submit">Hozzáadás</button>
+                </form>
+                <div className="shopping-tip">
+                  <span>✦</span>
+                  <p>A lista minden hétfőn friss alapokkal indul.</p>
+                </div>
+              </aside>
+            </div>
           </>
         )}
 
