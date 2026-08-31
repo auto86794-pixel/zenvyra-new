@@ -9,6 +9,7 @@ import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
 type View =
   | "today"
   | "weekly"
+  | "challenges"
   | "meals"
   | "movement"
   | "wellbeing"
@@ -49,6 +50,91 @@ type SavedState = {
 };
 
 const STORAGE_KEY = "zenvyra_dashboard_v1";
+const CHALLENGE_STORAGE_PREFIX = "zenvyra_challenges_v1";
+
+type ChallengeId = "water" | "movement" | "balanced";
+type ChallengeProgress = Record<ChallengeId, boolean[]>;
+type StoredChallenges = {
+  week: string;
+  progress: ChallengeProgress;
+};
+
+const challengeDays = ["H", "K", "Sze", "Cs", "P", "Szo", "V"];
+const challenges: Array<{
+  id: ChallengeId;
+  kicker: string;
+  title: string;
+  description: string;
+  target: number;
+  icon: string;
+}> = [
+  {
+    id: "water",
+    kicker: "HIDRATÁLÁS",
+    title: "5 figyelmes nap",
+    description: "Jelöld, amikor tudatosan figyeltél a folyadékpótlásra.",
+    target: 5,
+    icon: "◌",
+  },
+  {
+    id: "movement",
+    kicker: "MOZGÁS",
+    title: "3 örömmozgás",
+    description: "Egy séta, nyújtás vagy rövid edzés is teljes értékű lépés.",
+    target: 3,
+    icon: "⌁",
+  },
+  {
+    id: "balanced",
+    kicker: "EGYENSÚLY",
+    title: "5 gondoskodó étkezés",
+    description: "Nem tökéletesség: egy nyugodt, tápláló döntés már számít.",
+    target: 5,
+    icon: "♡",
+  },
+];
+
+function emptyChallengeProgress(): ChallengeProgress {
+  return {
+    water: Array(7).fill(false),
+    movement: Array(7).fill(false),
+    balanced: Array(7).fill(false),
+  };
+}
+
+function currentWeekKey() {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - day + 1);
+  return monday.toISOString().slice(0, 10);
+}
+
+function loadChallengeProgress(storageKey: string): ChallengeProgress {
+  if (typeof window === "undefined") return emptyChallengeProgress();
+
+  try {
+    const saved = JSON.parse(
+      window.localStorage.getItem(storageKey) ?? "null",
+    ) as StoredChallenges | null;
+
+    if (saved?.week !== currentWeekKey()) return emptyChallengeProgress();
+
+    return {
+      water: Array.isArray(saved.progress?.water)
+        ? saved.progress.water.slice(0, 7)
+        : Array(7).fill(false),
+      movement: Array.isArray(saved.progress?.movement)
+        ? saved.progress.movement.slice(0, 7)
+        : Array(7).fill(false),
+      balanced: Array.isArray(saved.progress?.balanced)
+        ? saved.progress.balanced.slice(0, 7)
+        : Array(7).fill(false),
+    };
+  } catch {
+    return emptyChallengeProgress();
+  }
+}
 
 const initialMeals: Meal[] = [
   {
@@ -98,6 +184,7 @@ function nutritionValue(value: number) {
 const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "today", label: "Ma", icon: "✦" },
   { id: "weekly", label: "Heti terv", icon: "▦" },
+  { id: "challenges", label: "Kihívások", icon: "✓" },
   { id: "meals", label: "Étkezések", icon: "◒" },
   { id: "movement", label: "Mozgás", icon: "⌁" },
   { id: "wellbeing", label: "Közérzet", icon: "◇" },
@@ -220,6 +307,11 @@ function loadSavedState(): SavedState {
 
 export default function Dashboard({ onSignOut, session = null, guestMode = false, profile = null }: Props) {
   const initial = useMemo(() => loadSavedState(), []);
+  const challengeStorageKey = `${CHALLENGE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const initialChallenges = useMemo(
+    () => loadChallengeProgress(challengeStorageKey),
+    [challengeStorageKey],
+  );
 
   const [view, setView] = useState<View>("today");
   const [meals, setMeals] = useState<Meal[]>(initial.meals);
@@ -227,6 +319,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [movementDone, setMovementDone] = useState(initial.movementDone);
   const [mood, setMood] = useState(initial.mood);
   const [weight, setWeight] = useState(profile?.current_weight_kg ?? initial.weight);
+  const [challengeProgress, setChallengeProgress] =
+    useState<ChallengeProgress>(initialChallenges);
 
   const [mealModalOpen, setMealModalOpen] = useState(false);
   const [quickModalOpen, setQuickModalOpen] = useState(false);
@@ -272,6 +366,23 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
   }, [guestMode, meals, water, movementDone, mood, weight]);
+
+  useEffect(() => {
+    const snapshot: StoredChallenges = {
+      week: currentWeekKey(),
+      progress: challengeProgress,
+    };
+    window.localStorage.setItem(challengeStorageKey, JSON.stringify(snapshot));
+  }, [challengeProgress, challengeStorageKey]);
+
+  function toggleChallengeDay(challengeId: ChallengeId, dayIndex: number) {
+    setChallengeProgress((current) => ({
+      ...current,
+      [challengeId]: current[challengeId].map((done, index) =>
+        index === dayIndex ? !done : done,
+      ),
+    }));
+  }
 
   useEffect(() => {
     if (!session?.user || guestMode) {
@@ -628,6 +739,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "MAI EGYENSÚLY"
                 : view === "weekly"
                   ? "HETI RITMUS"
+                : view === "challenges"
+                  ? "KIS LÉPÉSEK"
                 : view === "meals"
                   ? "TÁPLÁLKOZÁS"
                   : view === "movement"
@@ -642,6 +755,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "Jó, hogy itt vagy."
                 : view === "weekly"
                   ? "A heted, könnyebben."
+                : view === "challenges"
+                  ? "A saját tempódban."
                 : view === "meals"
                   ? "Mai étkezéseid"
                   : view === "movement"
@@ -656,6 +771,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 ? "Ma is elég egy-két jó döntés."
                 : view === "weekly"
                   ? "Egy gyengéd iránytű, amit a saját napjaidhoz igazíthatsz."
+                : view === "challenges"
+                  ? "Válassz apró célokat, és vedd észre minden lépésedet."
                 : view === "meals"
                   ? "Átláthatóan, felesleges bonyolítás nélkül."
                   : view === "movement"
@@ -935,6 +1052,72 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 </article>
               ))}
             </section>
+          </>
+        )}
+
+        {view === "challenges" && (
+          <>
+            <section className="challenge-intro">
+              <div>
+                <span className="card-kicker">E HETI FINOM FÓKUSZ</span>
+                <h2>Nem verseny. Egy kis figyelem magadra.</h2>
+                <p>
+                  A kihagyott nap nem kudarc. Jelöld, ami jól esett, a következő
+                  héten pedig tiszta lappal indulhatsz.
+                </p>
+              </div>
+              <div className="challenge-intro-mark" aria-hidden="true">✦</div>
+            </section>
+
+            <section className="challenge-grid" aria-label="Heti kihívások">
+              {challenges.map((challenge) => {
+                const completed = challengeProgress[challenge.id].filter(Boolean).length;
+                const targetReached = completed >= challenge.target;
+
+                return (
+                  <article
+                    className={`dashboard-card challenge-card ${targetReached ? "complete" : ""}`}
+                    key={challenge.id}
+                  >
+                    <div className="challenge-heading">
+                      <div className="challenge-icon">{challenge.icon}</div>
+                      <div>
+                        <span className="card-kicker">{challenge.kicker}</span>
+                        <h2>{challenge.title}</h2>
+                      </div>
+                    </div>
+                    <p>{challenge.description}</p>
+
+                    <div className="challenge-progress-row">
+                      <strong>{Math.min(completed, challenge.target)} / {challenge.target}</strong>
+                      <span>{targetReached ? "Megvan — szép munka!" : "már ez is számít"}</span>
+                    </div>
+                    <div className="challenge-progress-track" aria-hidden="true">
+                      <i style={{ width: `${Math.min(100, (completed / challenge.target) * 100)}%` }} />
+                    </div>
+
+                    <div className="challenge-days">
+                      {challengeDays.map((day, index) => (
+                        <button
+                          type="button"
+                          key={day}
+                          className={challengeProgress[challenge.id][index] ? "active" : ""}
+                          onClick={() => toggleChallengeDay(challenge.id, index)}
+                          aria-pressed={challengeProgress[challenge.id][index]}
+                          aria-label={`${day}, ${challenge.title}`}
+                        >
+                          <span>{challengeProgress[challenge.id][index] ? "✓" : day}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+
+            <p className="challenge-storage-note">
+              A jelöléseket ezen az eszközön mentjük, és minden hétfőn új hét kezdődik.
+            </p>
           </>
         )}
 
