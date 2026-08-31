@@ -1986,6 +1986,182 @@ button {
   gap: 22px;
 }
 
+.movement-hero {
+  margin-bottom: 20px;
+  padding: 28px 30px;
+  border: 1px solid rgba(101, 67, 128, 0.08);
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 25px;
+  background: linear-gradient(135deg, #fffdfb, #f4eef8);
+  box-shadow: 0 18px 42px rgba(78, 43, 96, 0.07);
+}
+
+.movement-hero h2 {
+  margin: 10px 0 8px;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(28px, 3vw, 42px);
+  font-weight: 600;
+}
+
+.movement-hero p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.movement-week-summary {
+  min-width: 245px;
+  padding: 18px;
+  border-radius: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  color: white;
+  background: linear-gradient(145deg, #7450a4, #a66bc3);
+}
+
+.movement-week-summary div {
+  text-align: center;
+}
+
+.movement-week-summary strong,
+.movement-week-summary span {
+  display: block;
+}
+
+.movement-week-summary strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28px;
+}
+
+.movement-week-summary span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+}
+
+.movement-filters {
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border: 1px solid rgba(101, 67, 128, 0.08);
+  border-radius: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  background: white;
+}
+
+.movement-filters > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.movement-filters span {
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.movement-filters button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(116, 80, 164, 0.13);
+  border-radius: 999px;
+  color: #765d7f;
+  background: #faf7fb;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.movement-filters button.active {
+  border-color: transparent;
+  color: white;
+  background: linear-gradient(90deg, #ff8f7d, #b76fc0);
+}
+
+.movement-message {
+  margin-bottom: 16px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  color: #684878;
+  background: #f5eef8;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.movement-library {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.workout-card.detailed {
+  display: flex;
+  flex-direction: column;
+}
+
+.workout-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 17px 0 10px;
+}
+
+.workout-tags span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #75558c;
+  background: #f3edf7;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.workout-details-button {
+  margin-top: auto;
+  padding: 12px 0;
+  border: 0;
+  color: #765195;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 800;
+  text-align: left;
+}
+
+.workout-steps {
+  margin: 0 0 15px;
+  padding: 13px 13px 13px 32px;
+  border-radius: 14px;
+  color: var(--muted);
+  background: #f8f4fa;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.workout-complete-button {
+  width: 100%;
+  border: 0;
+}
+
+.movement-progress-card button {
+  width: max-content;
+  margin-top: auto;
+  padding: 10px 0 0;
+  border: 0;
+  color: #765195;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 850;
+}
+
 .workout-card {
   overflow: hidden;
 }
@@ -2222,6 +2398,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .movement-library {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .weekly-plan-grid {
     grid-template-columns: 1fr;
   }
@@ -2320,6 +2500,19 @@ button {
 
   .movement-grid {
     grid-template-columns: 1fr;
+  }
+
+  .movement-library {
+    grid-template-columns: 1fr;
+  }
+
+  .movement-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .movement-week-summary {
+    min-width: 0;
   }
 
   .weekly-plan-intro {

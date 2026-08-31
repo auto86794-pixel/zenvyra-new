@@ -9,6 +9,10 @@ import RecipesView, {
   type Recipe,
   type RecipeIngredient,
 } from "@/components/dashboard/RecipesView";
+import MovementView, {
+  type MovementEntry,
+  type Workout,
+} from "@/components/dashboard/MovementView";
 
 type View =
   | "today"
@@ -59,6 +63,7 @@ type SavedState = {
   mood: number;
   weight: number;
   weightHistory: WeightEntry[];
+  movementHistory: MovementEntry[];
 };
 
 const STORAGE_KEY = "zenvyra_dashboard_v1";
@@ -370,6 +375,7 @@ function loadSavedState(): SavedState {
       mood: 4,
       weight: 68.4,
       weightHistory: [{ date: localDateKey(), weight: 68.4 }],
+      movementHistory: [],
     };
   }
 
@@ -384,6 +390,7 @@ function loadSavedState(): SavedState {
         mood: 4,
         weight: 68.4,
         weightHistory: [{ date: localDateKey(), weight: 68.4 }],
+        movementHistory: [],
       };
     }
 
@@ -405,6 +412,9 @@ function loadSavedState(): SavedState {
             )
             .slice(-30)
         : [{ date: localDateKey(), weight: 68.4 }],
+      movementHistory: Array.isArray(saved.movementHistory)
+        ? saved.movementHistory.slice(-50)
+        : [],
     };
   } catch {
     return {
@@ -414,6 +424,7 @@ function loadSavedState(): SavedState {
       mood: 4,
       weight: 68.4,
       weightHistory: [{ date: localDateKey(), weight: 68.4 }],
+      movementHistory: [],
     };
   }
 }
@@ -440,6 +451,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [weight, setWeight] = useState(profile?.current_weight_kg ?? initial.weight);
   const [weightHistory, setWeightHistory] = useState<WeightEntry[]>(
     guestMode ? initial.weightHistory : [],
+  );
+  const [movementHistory, setMovementHistory] = useState<MovementEntry[]>(
+    guestMode ? initial.movementHistory : [],
   );
   const [challengeProgress, setChallengeProgress] =
     useState<ChallengeProgress>(initialChallenges);
@@ -507,10 +521,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       mood,
       weight,
       weightHistory,
+      movementHistory,
     };
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  }, [guestMode, meals, water, movementDone, mood, weight, weightHistory]);
+  }, [guestMode, meals, water, movementDone, mood, weight, weightHistory, movementHistory]);
 
   useEffect(() => {
     const snapshot: StoredChallenges = {
@@ -627,10 +642,10 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             .limit(1),
           supabase
             .from("movement_logs")
-            .select("completed")
-            .eq("logged_on", today)
-            .order("created_at", { ascending: false })
-            .limit(1),
+            .select("id, title, minutes, completed, logged_on, created_at")
+            .gte("logged_on", sevenDaysAgo)
+            .order("logged_on", { ascending: true })
+            .order("created_at", { ascending: true }),
         ]);
 
       if (!active) return;
@@ -688,9 +703,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         setMood(Number(wellbeingResult.data[0].mood));
       }
 
-      if (movementResult.data?.[0]) {
-        setMovementDone(Boolean(movementResult.data[0].completed));
-      }
+      const cloudMovementHistory = (movementResult.data ?? [])
+        .filter((row) => Boolean(row.completed) && Number(row.minutes) > 0)
+        .map((row) => ({
+          id: row.id,
+          date: row.logged_on,
+          title: row.title,
+          minutes: Number(row.minutes),
+        }));
+      setMovementHistory(cloudMovementHistory);
+      setMovementDone(cloudMovementHistory.some((entry) => entry.date === today));
 
       setCloudReady(true);
     }
@@ -795,20 +817,52 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   async function saveMovement(completed: boolean) {
-    setMovementDone(completed);
-
-    if (guestMode || !session?.user) return;
-
-    const { error } = await supabase.from("movement_logs").insert({
-      user_id: session.user.id,
-      title: "Mai mozgás",
-      minutes: completed ? 20 : 0,
-      completed,
-    });
-
-    if (error) {
-      setCloudMessage("A mozgás mentése nem sikerült.");
+    if (!completed) {
+      setView("movement");
+      return;
     }
+    await completeWorkout({
+      id: "daily-movement",
+      title: "Mai szabad mozgás",
+      minutes: 20,
+      level: "Kezdő",
+      focus: "Szabadon választott",
+      description: "A saját választásod szerinti mozgás.",
+      steps: [],
+    });
+  }
+
+  async function completeWorkout(workout: Workout) {
+    const entry: MovementEntry = {
+      id: `guest-workout-${Date.now()}`,
+      date: localDateKey(),
+      title: workout.title,
+      minutes: workout.minutes,
+    };
+
+    if (!guestMode && session?.user) {
+      const { data, error } = await supabase
+        .from("movement_logs")
+        .insert({
+          user_id: session.user.id,
+          title: workout.title,
+          minutes: workout.minutes,
+          completed: true,
+        })
+        .select("id, logged_on")
+        .single();
+
+      if (error || !data) {
+        setCloudMessage("A mozgás mentése nem sikerült.");
+        return false;
+      }
+      entry.id = data.id;
+      entry.date = data.logged_on;
+    }
+
+    setMovementHistory((current) => [...current, entry].slice(-50));
+    setMovementDone(true);
+    return true;
   }
 
   function openMealModal() {
@@ -987,6 +1041,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setMood(4);
     setWeight(68.4);
     setWeightHistory([{ date: localDateKey(), weight: 68.4 }]);
+    setMovementHistory([]);
     setQuickWeight("68,4");
   }
 
@@ -1161,9 +1216,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <button
                   type="button"
                   className="summary-action"
-                  onClick={() => void saveMovement(!movementDone)}
+                  onClick={() => movementDone ? setView("movement") : void saveMovement(true)}
                 >
-                  {movementDone ? "Visszavonás" : "Teljesítve"}
+                  {movementDone ? "Mai mozgások" : "Teljesítve"}
                 </button>
               </article>
             </section>
@@ -1573,29 +1628,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )}
 
         {view === "movement" && (
-          <section className="movement-grid">
-            {[
-              ["20 perc", "Könnyű átmozgatás", "Mobilitás és nyújtás"],
-              ["30 perc", "Teljes test", "Saját testsúlyos edzés"],
-              ["25 perc", "Frissítő séta", "Könnyű kardió"],
-            ].map(([time, title, text], index) => (
-              <article className="dashboard-card workout-card" key={title}>
-                <div className={`workout-art workout-art-${index + 1}`}>
-                  <span>⌁</span>
-                </div>
-                <span className="card-kicker">{time}</span>
-                <h2>{title}</h2>
-                <p>{text}</p>
-                <button
-                  type="button"
-                  className="focus-button"
-                  onClick={() => void saveMovement(true)}
-                >
-                  {movementDone ? "Mai mozgás kész ✓" : "Teljesítve →"}
-                </button>
-              </article>
-            ))}
-          </section>
+          <MovementView history={movementHistory} onComplete={completeWorkout} />
         )}
 
         {view === "wellbeing" && (
@@ -1729,6 +1762,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     <i style={{ width: `${goalProgress}%` }} />
                   </div>
                 )}
+              </article>
+
+              <article className="dashboard-card progress-insight-card movement-progress-card">
+                <span className="card-kicker">HETI MOZGÁS</span>
+                <strong>{movementHistory.reduce((sum, entry) => sum + entry.minutes, 0)} perc</strong>
+                <p>
+                  {new Set(movementHistory.map((entry) => entry.date)).size} aktív nap · minden rövid mozgás beleszámít.
+                </p>
+                <button type="button" onClick={() => setView("movement")}>Edzések megnyitása →</button>
               </article>
             </section>
 
@@ -1950,7 +1992,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
               <button
                 type="button"
-                onClick={() => void saveMovement(!movementDone)}
+                onClick={() => movementDone ? setView("movement") : void saveMovement(true)}
               >
                 <span>⌁</span>
                 <strong>{movementDone ? "Mozgás kész" : "Mozgás teljesítve"}</strong>
