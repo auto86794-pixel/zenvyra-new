@@ -1058,10 +1058,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       <aside className="dashboard-sidebar">
         <div className="dashboard-brand">
           <div className="dashboard-brand-mark">✦</div>
-          <div>
-            <strong>ZENVYRA</strong>
-            <span>wellness for you</span>
-          </div>
+          <div className="lotus" aria-hidden="true">
+    <span>◡</span>
+    <span>◇</span>
+    <span>◡</span>
+  </div>
+
+  <div>
+    <strong>ZENVYRA</strong>
+    <span>TEST ÉS LÉLEK HARMÓNIÁBAN</span>
+  </div>
         </div>
 
         <nav className="dashboard-nav" aria-label="Fő navigáció">

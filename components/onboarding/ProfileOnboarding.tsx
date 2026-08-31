@@ -85,31 +85,39 @@ export default function ProfileOnboarding({
       : "";
 
   const [step, setStep] = useState<Step>(1);
+
   const [displayName, setDisplayName] = useState(
     initialProfile?.display_name || metadataName || ""
   );
+
   const [sex, setSex] = useState<"female" | "male">(
     initialProfile?.sex || "female"
   );
+
   const [age, setAge] = useState(
     initialProfile?.age ? String(initialProfile.age) : ""
   );
+
   const [height, setHeight] = useState(
     initialProfile?.height_cm ? String(initialProfile.height_cm) : ""
   );
+
   const [weight, setWeight] = useState(
     initialProfile?.current_weight_kg
       ? String(initialProfile.current_weight_kg)
       : ""
   );
+
   const [targetWeight, setTargetWeight] = useState(
     initialProfile?.target_weight_kg
       ? String(initialProfile.target_weight_kg)
       : ""
   );
+
   const [goal, setGoal] = useState<"lose" | "maintain" | "gain">(
     initialProfile?.goal || "lose"
   );
+
   const [activity, setActivity] = useState<
     "low" | "light" | "moderate" | "high" | "very_high"
   >(initialProfile?.activity_level || "light");
@@ -131,25 +139,50 @@ export default function ProfileOnboarding({
     }
 
     const sexConstant = sex === "male" ? 5 : -161;
-    const bmr = 10 * weightN + 6.25 * heightN - 5 * ageN + sexConstant;
+
+    const bmr =
+      10 * weightN +
+      6.25 * heightN -
+      5 * ageN +
+      sexConstant;
+
     const activityFactor =
-      activityOptions.find((item) => item.id === activity)?.factor ?? 1.375;
+      activityOptions.find((item) => item.id === activity)?.factor ??
+      1.375;
 
     let calories = bmr * activityFactor;
 
     if (goal === "lose") calories -= 350;
     if (goal === "gain") calories += 250;
 
-    calories = Math.max(1200, Math.min(4500, Math.round(calories / 10) * 10));
+    calories = Math.max(
+      1200,
+      Math.min(4500, Math.round(calories / 10) * 10)
+    );
 
     const proteinMultiplier =
-      goal === "lose" ? 1.8 : goal === "gain" ? 1.7 : 1.6;
+      goal === "lose"
+        ? 1.8
+        : goal === "gain"
+          ? 1.7
+          : 1.6;
+
     const protein = Math.round(weightN * proteinMultiplier);
     const fat = Math.round(weightN * 0.8);
-    const remaining = Math.max(0, calories - protein * 4 - fat * 9);
+
+    const remaining = Math.max(
+      0,
+      calories - protein * 4 - fat * 9
+    );
+
     const carbs = Math.round(remaining / 4);
 
-    return { calories, protein, carbs, fat };
+    return {
+      calories,
+      protein,
+      carbs,
+      fat,
+    };
   }, [activity, age, goal, height, sex, weight]);
 
   function parseNumber(value: string) {
@@ -174,10 +207,13 @@ export default function ProfileOnboarding({
 
   function canContinueStep2() {
     const target = parseNumber(targetWeight);
+
     return target >= 30 && target <= 250;
   }
 
-  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+  async function saveProfile(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
     if (!estimate) return;
@@ -212,18 +248,27 @@ export default function ProfileOnboarding({
       .single();
 
     if (error || !data) {
-      setMessage("A profil mentése nem sikerült. Próbáld újra.");
+      setMessage(
+        "A profil mentése nem sikerült. Próbáld újra."
+      );
       setBusy(false);
       return;
     }
 
     onComplete({
       ...data,
-      height_cm: data.height_cm === null ? null : Number(data.height_cm),
+      height_cm:
+        data.height_cm === null
+          ? null
+          : Number(data.height_cm),
       current_weight_kg:
-        data.current_weight_kg === null ? null : Number(data.current_weight_kg),
+        data.current_weight_kg === null
+          ? null
+          : Number(data.current_weight_kg),
       target_weight_kg:
-        data.target_weight_kg === null ? null : Number(data.target_weight_kg),
+        data.target_weight_kg === null
+          ? null
+          : Number(data.target_weight_kg),
     } as ZenvyraProfile);
 
     setBusy(false);
@@ -233,41 +278,58 @@ export default function ProfileOnboarding({
     <main className="onboarding-shell">
       <section className="onboarding-visual">
         <div className="onboarding-brand">
-          <div className="dashboard-brand-mark">✦</div>
+          <div className="lotus" aria-hidden="true">
+            <span>◡</span>
+            <span>◇</span>
+            <span>◡</span>
+          </div>
+
           <div>
             <strong>ZENVYRA</strong>
-            <span>wellness for you</span>
+            <span>TEST ÉS LÉLEK HARMÓNIÁBAN</span>
           </div>
         </div>
 
         <div className="onboarding-copy">
           <span>AZ ELSŐ LÉPÉS</span>
+
           <h1>
             A Zenvyra
             <br />
             rólad szól.
           </h1>
+
           <p>
-            Néhány alapadatból személyre szabjuk a napi céljaidat. Később
-            bármikor módosíthatod őket.
+            Néhány alapadatból személyre szabjuk a napi
+            céljaidat. Később bármikor módosíthatod őket.
           </p>
         </div>
 
         <div className="onboarding-promise">
           <div>♡</div>
           <strong>Nem a tökéletességet mérjük.</strong>
-          <span>A saját ritmusodhoz igazítjuk a tervet.</span>
+          <span>
+            A saját ritmusodhoz igazítjuk a tervet.
+          </span>
         </div>
       </section>
 
       <section className="onboarding-form-side">
-        <form className="onboarding-card" onSubmit={saveProfile}>
-          <div className="step-row" aria-label="Beállítás lépései">
+        <form
+          className="onboarding-card"
+          onSubmit={saveProfile}
+        >
+          <div
+            className="step-row"
+            aria-label="Beállítás lépései"
+          >
             {[1, 2, 3].map((value) => (
               <span
                 key={value}
                 className={step >= value ? "active" : ""}
-                aria-current={step === value ? "step" : undefined}
+                aria-current={
+                  step === value ? "step" : undefined
+                }
               >
                 {value}
               </span>
@@ -279,15 +341,21 @@ export default function ProfileOnboarding({
               <div className="onboarding-heading">
                 <span>1 / 3 · ALAPADATOK</span>
                 <h2>Ismerjük meg egymást.</h2>
-                <p>Ezekből számoljuk az első napi kiindulópontot.</p>
+                <p>
+                  Ezekből számoljuk az első napi
+                  kiindulópontot.
+                </p>
               </div>
 
               <div className="onboarding-fields">
                 <label>
                   <span>Hogy szólíthatunk?</span>
+
                   <input
                     value={displayName}
-                    onChange={(event) => setDisplayName(event.target.value)}
+                    onChange={(event) =>
+                      setDisplayName(event.target.value)
+                    }
                     placeholder="Keresztnév"
                     autoFocus
                   />
@@ -296,9 +364,12 @@ export default function ProfileOnboarding({
                 <div className="form-grid-2">
                   <label>
                     <span>Életkor</span>
+
                     <input
                       value={age}
-                      onChange={(event) => setAge(event.target.value)}
+                      onChange={(event) =>
+                        setAge(event.target.value)
+                      }
                       inputMode="numeric"
                       placeholder="35"
                     />
@@ -306,13 +377,17 @@ export default function ProfileOnboarding({
 
                   <label>
                     <span>Magasság</span>
+
                     <div className="input-unit">
                       <input
                         value={height}
-                        onChange={(event) => setHeight(event.target.value)}
+                        onChange={(event) =>
+                          setHeight(event.target.value)
+                        }
                         inputMode="decimal"
                         placeholder="168"
                       />
+
                       <b>cm</b>
                     </div>
                   </label>
@@ -320,30 +395,47 @@ export default function ProfileOnboarding({
 
                 <label>
                   <span>Biológiai nem</span>
+
                   <div className="choice-grid">
-                    {biologicalSexOptions.map((option) => (
-                      <button
-                        type="button"
-                        key={option.id}
-                        className={sex === option.id ? "active" : ""}
-                        onClick={() => setSex(option.id)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
+                    {biologicalSexOptions.map(
+                      (option) => (
+                        <button
+                          type="button"
+                          key={option.id}
+                          className={
+                            sex === option.id
+                              ? "active"
+                              : ""
+                          }
+                          onClick={() =>
+                            setSex(option.id)
+                          }
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    )}
                   </div>
-                  <small className="field-help">A napi energiaszükséglet pontosabb becsléséhez használjuk.</small>
+
+                  <small className="field-help">
+                    A napi energiaszükséglet pontosabb
+                    becsléséhez használjuk.
+                  </small>
                 </label>
 
                 <label>
                   <span>Jelenlegi testsúly</span>
+
                   <div className="input-unit">
                     <input
                       value={weight}
-                      onChange={(event) => setWeight(event.target.value)}
+                      onChange={(event) =>
+                        setWeight(event.target.value)
+                      }
                       inputMode="decimal"
                       placeholder="68,4"
                     />
+
                     <b>kg</b>
                   </div>
                 </label>
@@ -365,21 +457,43 @@ export default function ProfileOnboarding({
               <div className="onboarding-heading">
                 <span>2 / 3 · CÉL</span>
                 <h2>Merre szeretnél haladni?</h2>
-                <p>Nem végleges döntés. A cél később bármikor átállítható.</p>
+                <p>
+                  Nem végleges döntés. A cél később
+                  bármikor átállítható.
+                </p>
               </div>
 
               <div className="goal-grid">
                 {[
-                  ["lose", "Könnyebb szeretnék lenni", "Fokozatos fogyás"],
-                  ["maintain", "Tartani szeretném", "Súlymegtartás"],
-                  ["gain", "Erősödni szeretnék", "Tömegnövelés"],
+                  [
+                    "lose",
+                    "Könnyebb szeretnék lenni",
+                    "Fokozatos fogyás",
+                  ],
+                  [
+                    "maintain",
+                    "Tartani szeretném",
+                    "Súlymegtartás",
+                  ],
+                  [
+                    "gain",
+                    "Erősödni szeretnék",
+                    "Tömegnövelés",
+                  ],
                 ].map(([value, title, text]) => (
                   <button
                     type="button"
                     key={value}
-                    className={goal === value ? "active" : ""}
+                    className={
+                      goal === value ? "active" : ""
+                    }
                     onClick={() =>
-                      setGoal(value as "lose" | "maintain" | "gain")
+                      setGoal(
+                        value as
+                          | "lose"
+                          | "maintain"
+                          | "gain"
+                      )
                     }
                   >
                     <i>✦</i>
@@ -391,13 +505,17 @@ export default function ProfileOnboarding({
 
               <label className="target-weight-field">
                 <span>Célsúly</span>
+
                 <div className="input-unit">
                   <input
                     value={targetWeight}
-                    onChange={(event) => setTargetWeight(event.target.value)}
+                    onChange={(event) =>
+                      setTargetWeight(event.target.value)
+                    }
                     inputMode="decimal"
                     placeholder="65,0"
                   />
+
                   <b>kg</b>
                 </div>
               </label>
@@ -410,6 +528,7 @@ export default function ProfileOnboarding({
                 >
                   ← Vissza
                 </button>
+
                 <button
                   type="button"
                   className="onboarding-primary"
@@ -427,7 +546,10 @@ export default function ProfileOnboarding({
               <div className="onboarding-heading">
                 <span>3 / 3 · AKTIVITÁS</span>
                 <h2>Milyen a hétköznapod?</h2>
-                <p>Válaszd azt, ami átlagosan a legjobban jellemez.</p>
+                <p>
+                  Válaszd azt, ami átlagosan a legjobban
+                  jellemez.
+                </p>
               </div>
 
               <div className="activity-list">
@@ -435,10 +557,17 @@ export default function ProfileOnboarding({
                   <button
                     type="button"
                     key={item.id}
-                    className={activity === item.id ? "active" : ""}
-                    onClick={() => setActivity(item.id)}
+                    className={
+                      activity === item.id
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setActivity(item.id)
+                    }
                   >
                     <i />
+
                     <div>
                       <strong>{item.title}</strong>
                       <span>{item.text}</span>
@@ -451,29 +580,40 @@ export default function ProfileOnboarding({
                 <div className="plan-preview">
                   <div>
                     <span>KEZDŐ NAPI TERVED</span>
-                    <strong>{estimate.calories} kcal</strong>
+                    <strong>
+                      {estimate.calories} kcal
+                    </strong>
                   </div>
+
                   <div className="preview-macros">
                     <div>
                       <span>Fehérje</span>
                       <b>{estimate.protein} g</b>
                     </div>
+
                     <div>
                       <span>Szénhidrát</span>
                       <b>{estimate.carbs} g</b>
                     </div>
+
                     <div>
                       <span>Zsír</span>
                       <b>{estimate.fat} g</b>
                     </div>
                   </div>
+
                   <small>
-                    Ez egy induló becslés, nem orvosi vagy dietetikai ajánlás.
+                    Ez egy induló becslés, nem orvosi vagy
+                    dietetikai ajánlás.
                   </small>
                 </div>
               )}
 
-              {message && <div className="auth-message">{message}</div>}
+              {message && (
+                <div className="auth-message">
+                  {message}
+                </div>
+              )}
 
               <div className="onboarding-actions">
                 <button
@@ -483,12 +623,15 @@ export default function ProfileOnboarding({
                 >
                   ← Vissza
                 </button>
+
                 <button
                   type="submit"
                   className="onboarding-primary"
                   disabled={busy || !estimate}
                 >
-                  {busy ? "Mentés…" : "Belépek a Zenvyrába →"}
+                  {busy
+                    ? "Mentés…"
+                    : "Belépek a Zenvyrába →"}
                 </button>
               </div>
             </>

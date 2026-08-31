@@ -73,7 +73,9 @@ export default function HomePage() {
               ? null
               : Number(data.current_weight_kg),
           target_weight_kg:
-            data.target_weight_kg === null ? null : Number(data.target_weight_kg),
+            data.target_weight_kg === null
+              ? null
+              : Number(data.target_weight_kg),
         } as ZenvyraProfile);
       }
 
@@ -144,7 +146,9 @@ export default function HomePage() {
 
             <div>
               <div className="brand-name">ZENVYRA</div>
-              <div className="brand-tagline">WELLNESS FOR YOU</div>
+              <div className="brand-tagline">
+                TEST ÉS LÉLEK HARMÓNIÁBAN
+              </div>
             </div>
           </div>
 
