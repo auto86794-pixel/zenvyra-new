@@ -12,6 +12,7 @@ import RecipesView, {
 import MovementView, {
   type MovementEntry,
   type Workout,
+  workoutLibrary,
 } from "@/components/dashboard/MovementView";
 
 type View =
@@ -488,6 +489,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     () => createWeeklyPlan(profile?.goal ?? null),
     [profile?.goal]
   );
+  const todayPlanIndex = useMemo(() => (new Date().getDay() + 6) % 7, []);
+  const todayPlan = weeklyPlan[todayPlanIndex];
+  const todayWorkout = workoutLibrary[todayPlanIndex % workoutLibrary.length];
+  const todayChallenge = challenges[todayPlanIndex % challenges.length];
+  const todayChallengeDone = challengeProgress[todayChallenge.id][todayPlanIndex];
+  const todayPathCompleted =
+    Number(meals.length > 0) + Number(movementDone) + Number(todayChallengeDone);
   const generatedShoppingItems = useMemo(
     () => createShoppingList(profile?.goal ?? null),
     [profile?.goal],
@@ -1221,6 +1229,62 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   {movementDone ? "Mai mozgások" : "Teljesítve"}
                 </button>
               </article>
+            </section>
+
+            <section className="today-path" aria-labelledby="today-path-title">
+              <div className="today-path-heading">
+                <div>
+                  <span className="card-kicker">SZEMÉLYRE SZABOTT MAI ÚTVONAL</span>
+                  <h2 id="today-path-title">Három finom lépés mára.</h2>
+                  <p>Nem kötelező lista — egyetlen teljesített lépés is jó irány.</p>
+                </div>
+                <div className="today-path-progress">
+                  <strong>{todayPathCompleted}/3</strong>
+                  <span>mai lépés kész</span>
+                  <div aria-hidden="true"><i style={{ width: `${(todayPathCompleted / 3) * 100}%` }} /></div>
+                </div>
+              </div>
+
+              <div className="today-path-steps">
+                <article className={meals.length > 0 ? "today-step complete" : "today-step"}>
+                  <div className="today-step-number">{meals.length > 0 ? "✓" : "1"}</div>
+                  <div className="today-step-copy">
+                    <span>ÉTKEZÉSI FÓKUSZ · {todayPlan.day}</span>
+                    <h3>{todayPlan.food}</h3>
+                    <p>Használd iránynak, és válassz olyan ételt, ami most jól esik.</p>
+                  </div>
+                  <button type="button" onClick={meals.length > 0 ? () => setView("meals") : openMealModal}>
+                    {meals.length > 0 ? "Mai étkezések →" : "Étkezés rögzítése →"}
+                  </button>
+                </article>
+
+                <article className={movementDone ? "today-step complete" : "today-step"}>
+                  <div className="today-step-number">{movementDone ? "✓" : "2"}</div>
+                  <div className="today-step-copy">
+                    <span>AJÁNLOTT MOZGÁS · {todayWorkout.minutes} PERC</span>
+                    <h3>{todayWorkout.title}</h3>
+                    <p>{todayWorkout.description}</p>
+                  </div>
+                  <button type="button" onClick={() => setView("movement")}>Program megnyitása →</button>
+                </article>
+
+                <article className={todayChallengeDone ? "today-step complete" : "today-step"}>
+                  <div className="today-step-number">{todayChallengeDone ? "✓" : "3"}</div>
+                  <div className="today-step-copy">
+                    <span>MAI KIS KIHÍVÁS · {todayChallenge.kicker}</span>
+                    <h3>{todayChallenge.title}</h3>
+                    <p>{todayChallenge.description}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => todayChallengeDone
+                      ? setView("challenges")
+                      : toggleChallengeDay(todayChallenge.id, todayPlanIndex)}
+                  >
+                    {todayChallengeDone ? "Heti kihívások →" : "Mai lépés kész ✓"}
+                  </button>
+                </article>
+              </div>
             </section>
 
             <section className="dashboard-content-grid">

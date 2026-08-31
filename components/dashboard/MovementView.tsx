@@ -24,7 +24,7 @@ type Props = {
   onComplete: (workout: Workout) => Promise<boolean>;
 };
 
-const workouts: Workout[] = [
+export const workoutLibrary: Workout[] = [
   { id: "morning-mobility", title: "Reggeli átmozgatás", minutes: 10, level: "Kezdő", focus: "Mobilitás", description: "Finom ébresztő mozdulatok az egész testnek.", steps: ["Váll- és nyakkörzés", "Macska–tehén átmozgatás", "Csípőmobilizálás", "Lassú teljes testes nyújtás"] },
   { id: "gentle-core", title: "Kíméletes törzserősítés", minutes: 15, level: "Kezdő", focus: "Törzs", description: "Stabilitás ugrálás és eszközök nélkül.", steps: ["Medencebillentés", "Dead bug", "Térdelőtámaszos plank", "Pihenő nyújtás"] },
   { id: "full-body-basic", title: "Teljes test alapok", minutes: 20, level: "Kezdő", focus: "Erősítés", description: "Egyszerű saját testsúlyos gyakorlatsor.", steps: ["Székre guggolás", "Fali fekvőtámasz", "Csípőemelés", "Álló térdhúzás"] },
@@ -40,7 +40,7 @@ export default function MovementView({ history, onComplete }: Props) {
   const [message, setMessage] = useState("");
 
   const visibleWorkouts = useMemo(
-    () => workouts.filter((workout) => {
+    () => workoutLibrary.filter((workout) => {
       const durationMatches = duration === "all" || workout.minutes <= Number(duration);
       const levelMatches = level === "all" || workout.level === level;
       return durationMatches && levelMatches;
