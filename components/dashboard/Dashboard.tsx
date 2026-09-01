@@ -592,6 +592,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [water, setWater] = useState(initial.water);
   const [movementDone, setMovementDone] = useState(initial.movementDone);
   const [mood, setMood] = useState(initial.mood);
+  const [energyLevel, setEnergyLevel] = useState<"Alacsony" | "Közepes" | "Jó" | null>(null);
+  const [stressLevel, setStressLevel] = useState<"Alacsony" | "Közepes" | "Magas" | null>(null);
+  const [wellbeingNote, setWellbeingNote] = useState("");
   const [weight, setWeight] = useState(profile?.current_weight_kg ?? initial.weight);
   const [weightHistory, setWeightHistory] = useState<WeightEntry[]>(
     guestMode ? initial.weightHistory : [],
@@ -3305,20 +3308,141 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
         {view === "wellbeing" && (
           <section className="dashboard-content-grid">
-            <PreferencesPanel
-              session={session}
-              guestMode={guestMode}
-              initial={preferences}
-              onChange={(next) => {
-                setPreferences(next);
-                if (profile && onProfileChange) onProfileChange({ ...profile, ...next });
+            <article
+              className="dashboard-card wellbeing-card"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(255,246,247,0.98), rgba(255,238,230,0.78))",
+                border: "1px solid rgba(238, 124, 126, 0.14)",
               }}
-            />
-            <article className="dashboard-card">
-              <span className="card-kicker">KÖZÉRZET</span>
-              <h2>Mai állapot</h2>
+            >
+              <span className="card-kicker">NAPI BEJELENTKEZÉS</span>
+              <h2>Hogy érzed magad ma?</h2>
               <p className="wellbeing-lead">
-                Egy gyors jelzés segít észrevenni a saját mintáidat.
+                Néhány gyors jelzés segít, hogy a Zenvyra jobban igazodjon a mai
+                ritmusodhoz.
+              </p>
+
+              <div style={{ marginTop: 24 }}>
+                <strong style={{ display: "block", marginBottom: 10 }}>Hangulat</strong>
+                <div className="mood-scale large">
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={mood === value ? "active" : ""}
+                      onClick={() => void saveMood(value)}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 26 }}>
+                <strong style={{ display: "block", marginBottom: 10 }}>
+                  Milyen az energiaszinted?
+                </strong>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {(["Alacsony", "Közepes", "Jó"] as const).map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      onClick={() => setEnergyLevel(value)}
+                      style={{
+                        appearance: "none",
+                        border:
+                          energyLevel === value
+                            ? "1px solid rgba(225, 104, 116, 0.48)"
+                            : "1px solid rgba(225, 104, 116, 0.18)",
+                        borderRadius: 999,
+                        padding: "10px 16px",
+                        background:
+                          energyLevel === value
+                            ? "rgba(255, 219, 215, 0.78)"
+                            : "rgba(255,255,255,0.78)",
+                        color: "#6f3f68",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {energyLevel === value ? `${value} ✓` : value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 26 }}>
+                <strong style={{ display: "block", marginBottom: 10 }}>
+                  Mennyire érzed stresszesnek a mai napot?
+                </strong>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {(["Alacsony", "Közepes", "Magas"] as const).map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      onClick={() => setStressLevel(value)}
+                      style={{
+                        appearance: "none",
+                        border:
+                          stressLevel === value
+                            ? "1px solid rgba(225, 104, 116, 0.48)"
+                            : "1px solid rgba(225, 104, 116, 0.18)",
+                        borderRadius: 999,
+                        padding: "10px 16px",
+                        background:
+                          stressLevel === value
+                            ? "rgba(255, 219, 215, 0.78)"
+                            : "rgba(255,255,255,0.78)",
+                        color: "#6f3f68",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {stressLevel === value ? `${value} ✓` : value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 26 }}>
+                <label htmlFor="wellbeing-note">
+                  <strong style={{ display: "block", marginBottom: 8 }}>
+                    Van valami, amire ma figyeljünk?
+                  </strong>
+                </label>
+                <input
+                  id="wellbeing-note"
+                  type="text"
+                  value={wellbeingNote}
+                  onChange={(event) => setWellbeingNote(event.target.value)}
+                  placeholder="például fáradtabb vagyok, nyugodtabb napot szeretnék"
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: "1px solid rgba(225, 104, 116, 0.18)",
+                    borderRadius: 14,
+                    padding: "13px 15px",
+                    background: "rgba(255,255,255,0.82)",
+                    color: "inherit",
+                    font: "inherit",
+                  }}
+                />
+              </div>
+            </article>
+
+            <article
+              className="dashboard-card"
+              style={{
+                background: "rgba(255,255,255,0.84)",
+                border: "1px solid rgba(238, 124, 126, 0.10)",
+              }}
+            >
+              <span className="card-kicker">MAI ÁLLAPOT</span>
+              <h2>Egy pillanatkép rólad.</h2>
+              <p className="wellbeing-lead">
+                Nem értékelés és nem teljesítmény. Csak egy rövid kép arról, hogyan
+                vagy ma.
               </p>
 
               <div className="wellbeing-lines">
@@ -3327,31 +3451,21 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   <span>{mood} / 5</span>
                 </div>
                 <div>
-                  <strong>Folyadék</strong>
-                  <span>{water} ml</span>
+                  <strong>Energia</strong>
+                  <span>{energyLevel ?? "Még nincs megadva"}</span>
                 </div>
                 <div>
-                  <strong>Mozgás</strong>
-                  <span>{movementDone ? "Kész" : "Még vár"}</span>
+                  <strong>Stressz</strong>
+                  <span>{stressLevel ?? "Még nincs megadva"}</span>
                 </div>
               </div>
-            </article>
 
-            <article className="dashboard-card wellbeing-card">
-              <span className="card-kicker">HANGULAT</span>
-              <h2>Hogy vagy ma?</h2>
-              <div className="mood-scale large">
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={mood === value ? "active" : ""}
-                    onClick={() => void saveMood(value)}
-                  >
-                    {value}
-                  </button>
-                ))}
-              </div>
+              {(energyLevel || stressLevel || wellbeingNote.trim()) && (
+                <p style={{ marginTop: 18 }}>
+                  Köszönöm. Ezeket a jelzéseket a mai napod finomabb vezetéséhez
+                  használjuk.
+                </p>
+              )}
             </article>
           </section>
         )}
