@@ -588,6 +588,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
 
   const [view, setView] = useState<View>("today");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [meals, setMeals] = useState<Meal[]>(initial.meals);
   const [water, setWater] = useState(initial.water);
   const [movementDone, setMovementDone] = useState(initial.movementDone);
@@ -2283,7 +2284,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   return (
     <main className="dashboard-shell">
-      <aside className="dashboard-sidebar">
+      <aside className={mobileMenuOpen ? "dashboard-sidebar mobile-open" : "dashboard-sidebar"}>
         <div className="dashboard-brand">
           <div className="dashboard-brand-mark">✦</div>
           <div className="lotus" aria-hidden="true">
@@ -2304,7 +2305,10 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               type="button"
               key={item.id}
               className={view === item.id ? "active" : ""}
-              onClick={() => setView(item.id)}
+              onClick={() => {
+                setView(item.id);
+                setMobileMenuOpen(false);
+              }}
             >
               <span className="dashboard-nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -2328,8 +2332,27 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         </button>
       </aside>
 
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          className="mobile-menu-backdrop"
+          aria-label="Menü bezárása"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       <section className="dashboard-main">
         <header className="dashboard-topbar">
+          <button
+            type="button"
+            className="mobile-menu-button"
+            aria-label={mobileMenuOpen ? "Menü bezárása" : "Menü megnyitása"}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen((open) => !open)}
+          >
+            <span aria-hidden="true">{mobileMenuOpen ? "×" : "☰"}</span>
+          </button>
+
           <div>
             <div className="dashboard-eyebrow">
               {view === "today"
@@ -3890,6 +3913,93 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           </div>
         </div>
       )}
+      <style>{`
+        .mobile-menu-button,
+        .mobile-menu-backdrop {
+          display: none;
+        }
+
+        @media (max-width: 760px) {
+          .dashboard-shell {
+            display: block !important;
+          }
+
+          .dashboard-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            bottom: 0 !important;
+            width: min(84vw, 320px) !important;
+            max-width: 320px !important;
+            height: 100dvh !important;
+            z-index: 1001 !important;
+            transform: translateX(-105%) !important;
+            transition: transform 220ms ease !important;
+            overflow-y: auto !important;
+            box-shadow: 18px 0 45px rgba(71, 45, 88, 0.18) !important;
+          }
+
+          .dashboard-sidebar.mobile-open {
+            transform: translateX(0) !important;
+          }
+
+          .dashboard-sidebar .dashboard-brand,
+          .dashboard-sidebar .dashboard-nav,
+          .dashboard-sidebar .sidebar-wellness-card,
+          .dashboard-sidebar .dashboard-signout {
+            opacity: 1 !important;
+            visibility: visible !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button {
+            width: 100% !important;
+            justify-content: flex-start !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button > span:last-child {
+            display: inline !important;
+          }
+
+          .dashboard-main {
+            width: 100% !important;
+            margin-left: 0 !important;
+          }
+
+          .dashboard-topbar {
+            position: relative;
+            padding-top: 64px !important;
+          }
+
+          .mobile-menu-button {
+            display: grid !important;
+            place-items: center;
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            width: 44px;
+            height: 44px;
+            border: 1px solid rgba(122, 75, 157, 0.16);
+            border-radius: 14px;
+            background: rgba(255,255,255,0.92);
+            color: #6f3f8f;
+            font-size: 25px;
+            line-height: 1;
+            cursor: pointer;
+            z-index: 1002;
+            box-shadow: 0 8px 24px rgba(111,63,143,0.08);
+          }
+
+          .mobile-menu-backdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            border: 0;
+            background: rgba(49, 34, 58, 0.24);
+            backdrop-filter: blur(2px);
+          }
+        }
+      `}</style>
     </main>
   );
 }
