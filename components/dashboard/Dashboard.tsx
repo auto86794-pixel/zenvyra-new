@@ -1773,7 +1773,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           <>
             <section className="weekly-plan-intro">
               <div>
-                <span className="card-kicker">SZEMÉLYRE SZABOTT ALAP</span>
+                <span className="card-kicker">SZEMÉLYRE SZABOTT HETI ÉTKEZÉS</span>
                 <h2>A te heti egyensúlyod</h2>
                 <p>
                   A terved a célodhoz igazodik, de nem kötelező lista. Cserélj
@@ -1802,11 +1802,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                       <div>
                         <i className="weekly-dot food-dot">◒</i>
                         <p>
-                          <span>Tervezett étkezés</span>
+                          <span>Személyre szabott recept</span>
                           <strong>
                             {recommendation?.recipe
                               ? `${recommendation.recipe.name} · ${String(recommendation.portions).replace(".", ",")} adag`
-                              : item.food}
+                              : "Nincs megfelelő recept a jelenlegi szűrőkkel"}
                           </strong>
                           {recommendation?.recipe && (
                             <small>
