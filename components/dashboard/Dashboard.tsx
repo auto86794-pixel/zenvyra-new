@@ -89,6 +89,40 @@ type RecipeRecommendationHistoryEntry = {
   week: string;
 };
 
+const WEEKLY_PROTEIN_MAX = 2;
+
+function recipeProteinGroup(recipe: Recipe): string {
+  const generatedMatch = recipe.id.match(
+    /^zenvyra-(chicken|turkey|salmon|tuna|beef|egg|tofu|chickpea|lentil|tempeh|cottage|beans)-/,
+  );
+
+  if (generatedMatch) return generatedMatch[1];
+
+  const firstIngredient = recipe.ingredients[0]?.name.toLocaleLowerCase("hu") ?? "";
+  const groups: Array<[string, string[]]> = [
+    ["chicken", ["csirk"]],
+    ["turkey", ["pulyk"]],
+    ["salmon", ["lazac"]],
+    ["tuna", ["tonhal"]],
+    ["beef", ["marha"]],
+    ["egg", ["tojás"]],
+    ["tofu", ["tofu"]],
+    ["chickpea", ["csicseribors"]],
+    ["lentil", ["lencs"]],
+    ["tempeh", ["tempeh"]],
+    ["cottage", ["cottage", "túró"]],
+    ["beans", ["vörösbab", "bab"]],
+  ];
+
+  for (const [group, needles] of groups) {
+    if (needles.some((needle) => firstIngredient.includes(needle))) {
+      return group;
+    }
+  }
+
+  return `custom:${recipe.id}`;
+}
+
 function loadRecipeRecommendationHistory(
   storageKey: string,
 ): RecipeRecommendationHistoryEntry[] {
@@ -1061,17 +1095,40 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     const unusedRecipeIds = new Set(
       orderedCandidates.map((item) => item.recipe.id),
     );
+    const proteinCounts = new Map<string, number>();
+    let previousProtein: string | null = null;
 
     return weeklyPlan.map((day) => {
-      let selected = orderedCandidates.find((item) =>
+      const availableCandidates = orderedCandidates.filter((item) =>
         unusedRecipeIds.has(item.recipe.id),
       );
 
+      // Heti fehérjeforrás-rotáció:
+      // 1) ne legyen ugyanaz a fő fehérje két egymást követő napon,
+      // 2) ugyanaz a fehérjeforrás legfeljebb kétszer szerepeljen a héten,
+      // 3) ha a szűrések miatt ez nem tartható, fokozatosan lazítunk a szabályon.
+      let selected = availableCandidates.find((item) => {
+        const proteinGroup = recipeProteinGroup(item.recipe);
+        const count = proteinCounts.get(proteinGroup) ?? 0;
+        return proteinGroup !== previousProtein && count < WEEKLY_PROTEIN_MAX;
+      });
+
       if (!selected) {
-        orderedCandidates.forEach((item) => unusedRecipeIds.add(item.recipe.id));
-        selected = orderedCandidates.find((item) =>
-          unusedRecipeIds.has(item.recipe.id),
-        );
+        selected = availableCandidates.find((item) => {
+          const proteinGroup = recipeProteinGroup(item.recipe);
+          return proteinGroup !== previousProtein;
+        });
+      }
+
+      if (!selected) {
+        selected = availableCandidates.find((item) => {
+          const proteinGroup = recipeProteinGroup(item.recipe);
+          return (proteinCounts.get(proteinGroup) ?? 0) < WEEKLY_PROTEIN_MAX;
+        });
+      }
+
+      if (!selected) {
+        selected = availableCandidates[0];
       }
 
       if (!selected) {
@@ -1079,6 +1136,12 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       }
 
       unusedRecipeIds.delete(selected.recipe.id);
+      const selectedProtein = recipeProteinGroup(selected.recipe);
+      proteinCounts.set(
+        selectedProtein,
+        (proteinCounts.get(selectedProtein) ?? 0) + 1,
+      );
+      previousProtein = selectedProtein;
 
       return {
         day: day.day,
