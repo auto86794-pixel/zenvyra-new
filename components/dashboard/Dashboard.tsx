@@ -3951,13 +3951,39 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             visibility: visible !important;
           }
 
-          .dashboard-sidebar .dashboard-nav button {
+          .dashboard-sidebar .dashboard-nav {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
             width: 100% !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
             justify-content: flex-start !important;
+            gap: 12px !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 13px 14px !important;
+            border-radius: 14px !important;
+            white-space: normal !important;
+            text-align: left !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button > span {
+            flex: 0 0 auto !important;
           }
 
           .dashboard-sidebar .dashboard-nav button > span:last-child {
             display: inline !important;
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            width: auto !important;
+            white-space: normal !important;
           }
 
           .dashboard-main {
