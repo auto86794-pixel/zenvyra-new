@@ -78,6 +78,44 @@ const STORAGE_KEY = "zenvyra_dashboard_v1";
 const CHALLENGE_STORAGE_PREFIX = "zenvyra_challenges_v1";
 const SHOPPING_STORAGE_PREFIX = "zenvyra_shopping_v1";
 const RECIPE_STORAGE_PREFIX = "zenvyra_recipes_v1";
+const RECIPE_HISTORY_STORAGE_PREFIX = "zenvyra_recipe_history_v1";
+const RECIPE_REPEAT_BLOCK_DAYS = 14;
+
+
+
+type RecipeRecommendationHistoryEntry = {
+  recipeId: string;
+  recommendedAt: string;
+  week: string;
+};
+
+function loadRecipeRecommendationHistory(
+  storageKey: string,
+): RecipeRecommendationHistoryEntry[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = JSON.parse(
+      window.localStorage.getItem(storageKey) ?? "[]",
+    ) as RecipeRecommendationHistoryEntry[];
+
+    if (!Array.isArray(raw)) return [];
+
+    const cutoff = Date.now() - RECIPE_REPEAT_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+
+    return raw.filter((entry) => {
+      const timestamp = new Date(entry.recommendedAt).getTime();
+      return (
+        typeof entry.recipeId === "string" &&
+        typeof entry.week === "string" &&
+        Number.isFinite(timestamp) &&
+        timestamp >= cutoff
+      );
+    });
+  } catch {
+    return [];
+  }
+}
 
 type ShoppingItem = {
   id: string;
@@ -457,6 +495,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const challengeStorageKey = `${CHALLENGE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const shoppingStorageKey = `${SHOPPING_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const recipeStorageKey = `${RECIPE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const recipeHistoryStorageKey = `${RECIPE_HISTORY_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+
   const initialChallenges = useMemo(
     () => loadChallengeProgress(challengeStorageKey),
     [challengeStorageKey],
@@ -500,6 +540,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       : loadGuestPreferences(),
   );
   const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
+  const [recipeRecommendationHistory, setRecipeRecommendationHistory] = useState<
+    RecipeRecommendationHistoryEntry[]
+  >(() => loadRecipeRecommendationHistory(
+    `${RECIPE_HISTORY_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`,
+  ));
+  useEffect(() => {
+    setRecipeRecommendationHistory(
+      loadRecipeRecommendationHistory(recipeHistoryStorageKey),
+    );
+  }, [recipeHistoryStorageKey]);
 
   const [mealModalOpen, setMealModalOpen] = useState(false);
   const [quickModalOpen, setQuickModalOpen] = useState(false);
@@ -984,16 +1034,44 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       })
       .sort((a, b) => a.score - b.score || a.recipe.name.localeCompare(b.recipe.name, "hu"));
 
-    // Először minden, a felhasználó szűrőinek megfelelő receptet egyszer használunk.
-    // Csak akkor ismétlünk, ha kevesebb megfelelő recept van, mint nap a héten.
-    const unusedRecipeIds = new Set(scoredRecipes.map((item) => item.recipe.id));
+    const thisWeek = currentWeekKey();
+    const cutoff = Date.now() - RECIPE_REPEAT_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+    const recentlyRecommendedIds = new Set(
+      recipeRecommendationHistory
+        .filter((entry) => {
+          const timestamp = new Date(entry.recommendedAt).getTime();
+          return (
+            entry.week !== thisWeek &&
+            Number.isFinite(timestamp) &&
+            timestamp >= cutoff
+          );
+        })
+        .map((entry) => entry.recipeId),
+    );
+
+    // 14 napos ismétlésgátló: először csak olyan receptet használunk,
+    // amelyet az előző 14 napban nem ajánlottunk ennek a felhasználónak.
+    const freshRecipes = scoredRecipes.filter(
+      (item) => !recentlyRecommendedIds.has(item.recipe.id),
+    );
+    const fallbackRecipes = scoredRecipes.filter((item) =>
+      recentlyRecommendedIds.has(item.recipe.id),
+    );
+    const orderedCandidates = [...freshRecipes, ...fallbackRecipes];
+    const unusedRecipeIds = new Set(
+      orderedCandidates.map((item) => item.recipe.id),
+    );
 
     return weeklyPlan.map((day) => {
-      let selected = scoredRecipes.find((item) => unusedRecipeIds.has(item.recipe.id));
+      let selected = orderedCandidates.find((item) =>
+        unusedRecipeIds.has(item.recipe.id),
+      );
 
       if (!selected) {
-        scoredRecipes.forEach((item) => unusedRecipeIds.add(item.recipe.id));
-        selected = scoredRecipes.find((item) => unusedRecipeIds.has(item.recipe.id));
+        orderedCandidates.forEach((item) => unusedRecipeIds.add(item.recipe.id));
+        selected = orderedCandidates.find((item) =>
+          unusedRecipeIds.has(item.recipe.id),
+        );
       }
 
       if (!selected) {
@@ -1013,8 +1091,59 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     profile?.carbs_target_g,
     profile?.fat_target_g,
     profile?.protein_target_g,
+    recipeRecommendationHistory,
     weeklyPlan,
   ]);
+
+  useEffect(() => {
+    if (personalizedWeeklyRecipes.length === 0) return;
+
+    const thisWeek = currentWeekKey();
+    const recommendedAt = new Date().toISOString();
+    const selectedIds = personalizedWeeklyRecipes
+      .map((item) => item.recipe?.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (selectedIds.length === 0) return;
+
+    setRecipeRecommendationHistory((current) => {
+      const cutoff = Date.now() - RECIPE_REPEAT_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+      const recent = current.filter((entry) => {
+        const timestamp = new Date(entry.recommendedAt).getTime();
+        return Number.isFinite(timestamp) && timestamp >= cutoff;
+      });
+      const alreadyStoredThisWeek = new Set(
+        recent
+          .filter((entry) => entry.week === thisWeek)
+          .map((entry) => entry.recipeId),
+      );
+      const missingIds = selectedIds.filter(
+        (recipeId) => !alreadyStoredThisWeek.has(recipeId),
+      );
+
+      if (missingIds.length === 0 && recent.length === current.length) {
+        return current;
+      }
+
+      const next = [
+        ...recent,
+        ...missingIds.map((recipeId) => ({
+          recipeId,
+          recommendedAt,
+          week: thisWeek,
+        })),
+      ];
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          recipeHistoryStorageKey,
+          JSON.stringify(next),
+        );
+      }
+
+      return next;
+    });
+  }, [personalizedWeeklyRecipes, recipeHistoryStorageKey]);
 
   const nextStepTitle =
     !meals.some((meal) => meal.consumed)
@@ -1794,7 +1923,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <h2>A te heti egyensúlyod</h2>
                 <p>
                   A terved a célodhoz igazodik, de nem kötelező lista. Cserélj
-                  fel napokat, és válaszd azt, ami most belefér.
+                  fel napokat, és válaszd azt, ami most belefér. Ugyanazt a
+                  receptet 14 napig nem ajánljuk újra, ha van más megfelelő választás.
                 </p>
               </div>
               <div className="weekly-plan-goal">
