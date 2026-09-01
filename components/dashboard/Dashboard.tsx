@@ -928,6 +928,77 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     totals.protein,
   ]);
 
+  const personalizedWeeklyRecipes = useMemo(() => {
+    if (compatibleSavedRecipes.length === 0) return [];
+
+    const targetMeal = {
+      kcal: Math.max(250, dailyGoal * 0.3),
+      protein: profile?.protein_target_g ? profile.protein_target_g * 0.3 : 0,
+      carbs: profile?.carbs_target_g ? profile.carbs_target_g * 0.3 : 0,
+      fat: profile?.fat_target_g ? profile.fat_target_g * 0.3 : 0,
+    };
+
+    return weeklyPlan.map((day, dayIndex) => {
+      const scored = compatibleSavedRecipes
+        .map((recipe, recipeIndex) => {
+          const servings = Math.max(1, recipe.servings);
+          const perServing = {
+            kcal: recipe.kcal / servings,
+            protein: recipe.protein / servings,
+            carbs: recipe.carbs / servings,
+            fat: recipe.fat / servings,
+          };
+
+          const pairs = [
+            [perServing.kcal, targetMeal.kcal],
+            [perServing.protein, targetMeal.protein],
+            [perServing.carbs, targetMeal.carbs],
+            [perServing.fat, targetMeal.fat],
+          ].filter(([, target]) => target > 0);
+
+          const normalized = pairs.map(([value, target]) => value / target);
+          const numerator = normalized.reduce((sum, value) => sum + value, 0);
+          const denominator = normalized.reduce(
+            (sum, value) => sum + value * value,
+            0,
+          );
+          const rawPortions = denominator > 0 ? numerator / denominator : 1;
+          const portions = Math.max(0.5, Math.min(3, Math.round(rawPortions * 2) / 2));
+
+          const nutritionScore = pairs.reduce((sum, [value, target]) => {
+            const difference = (value * portions - target) / target;
+            return sum + difference * difference;
+          }, 0);
+
+          // Enyhe forgatás, hogy ne ugyanaz a recept kerüljön minden napra.
+          const rotationPenalty = ((recipeIndex - dayIndex + compatibleSavedRecipes.length) % compatibleSavedRecipes.length) * 0.035;
+
+          return {
+            recipe,
+            portions,
+            kcal: Math.round(perServing.kcal * portions),
+            protein: Math.round(perServing.protein * portions),
+            carbs: Math.round(perServing.carbs * portions),
+            fat: Math.round(perServing.fat * portions),
+            score: nutritionScore + rotationPenalty,
+          };
+        })
+        .sort((a, b) => a.score - b.score);
+
+      return {
+        day: day.day,
+        ...scored[0],
+      };
+    });
+  }, [
+    compatibleSavedRecipes,
+    dailyGoal,
+    profile?.carbs_target_g,
+    profile?.fat_target_g,
+    profile?.protein_target_g,
+    weeklyPlan,
+  ]);
+
   const nextStepTitle =
     !meals.some((meal) => meal.consumed)
       ? dailyRecipeRecommendation
@@ -1717,21 +1788,33 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             </section>
 
             <section className="weekly-plan-grid" aria-label="Heti terv">
-              {weeklyPlan.map((item, index) => (
-                <article className="dashboard-card weekly-day-card" key={item.day}>
-                  <div className="weekly-day-heading">
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    <h2>{item.day}</h2>
-                  </div>
+              {weeklyPlan.map((item, index) => {
+                const recommendation = personalizedWeeklyRecipes[index];
 
-                  <div className="weekly-day-items">
-                    <div>
-                      <i className="weekly-dot food-dot">◒</i>
-                      <p>
-                        <span>Étkezési fókusz</span>
-                        <strong>{item.food}</strong>
-                      </p>
+                return (
+                  <article className="dashboard-card weekly-day-card" key={item.day}>
+                    <div className="weekly-day-heading">
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <h2>{item.day}</h2>
                     </div>
+
+                    <div className="weekly-day-items">
+                      <div>
+                        <i className="weekly-dot food-dot">◒</i>
+                        <p>
+                          <span>Tervezett étkezés</span>
+                          <strong>
+                            {recommendation?.recipe
+                              ? `${recommendation.recipe.name} · ${String(recommendation.portions).replace(".", ",")} adag`
+                              : item.food}
+                          </strong>
+                          {recommendation?.recipe && (
+                            <small>
+                              {recommendation.kcal} kcal · {recommendation.protein} g fehérje · {recommendation.carbs} g szénhidrát · {recommendation.fat} g zsír
+                            </small>
+                          )}
+                        </p>
+                      </div>
                     <div>
                       <i className="weekly-dot movement-dot">⌁</i>
                       <p>
@@ -1748,7 +1831,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     </div>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </section>
           </>
         )}
