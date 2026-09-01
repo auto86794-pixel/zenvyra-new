@@ -66,9 +66,78 @@ const baseParts: RecipePart[] = [
 ];
 
 const flavorParts = [
-  { key: "lemon", label: "Citromos-zöldfűszeres", ingredient: "Citrom és friss zöldfűszerek", amount: "ízlés szerint", allergens: [] as string[] },
-  { key: "mediterranean", label: "Mediterrán", ingredient: "Paradicsom, paprika és oregánó", amount: "300 g", allergens: [] as string[] },
-  { key: "almond", label: "Mandulás-zöldfűszeres", ingredient: "Mandula és friss zöldfűszerek", amount: "30 g", allergens: ["nuts"] },
+  {
+    key: "lemon",
+    label: "Citromos-zöldfűszeres",
+    ingredient: "Citrom és friss zöldfűszerek",
+    amount: "ízlés szerint",
+    allergens: [] as string[],
+    extra: { kcal: 65, protein: 2, carbs: 10, fat: 2 },
+  },
+  {
+    key: "mediterranean",
+    label: "Mediterrán",
+    ingredient: "Paradicsom, paprika és oregánó",
+    amount: "300 g",
+    allergens: [] as string[],
+    extra: { kcal: 75, protein: 3, carbs: 13, fat: 2 },
+  },
+  {
+    key: "garlic-paprika",
+    label: "Fokhagymás-paprikás",
+    ingredient: "Fokhagyma, édes paprika és petrezselyem",
+    amount: "ízlés szerint",
+    allergens: [] as string[],
+    extra: { kcal: 60, protein: 2, carbs: 9, fat: 2 },
+  },
+  {
+    key: "tomato-basil",
+    label: "Paradicsomos-bazsalikomos",
+    ingredient: "Paradicsom és friss bazsalikom",
+    amount: "250 g",
+    allergens: [] as string[],
+    extra: { kcal: 70, protein: 3, carbs: 12, fat: 2 },
+  },
+  {
+    key: "curry-coconut",
+    label: "Enyhén currys-kókuszos",
+    ingredient: "Curry, lime és kókusztej",
+    amount: "120 ml",
+    allergens: [] as string[],
+    extra: { kcal: 85, protein: 2, carbs: 8, fat: 5 },
+  },
+  {
+    key: "mexican",
+    label: "Mexikói fűszerezésű",
+    ingredient: "Paradicsom, kukorica, lime és fűszerek",
+    amount: "220 g",
+    allergens: [] as string[],
+    extra: { kcal: 80, protein: 3, carbs: 14, fat: 2 },
+  },
+  {
+    key: "ginger-lime",
+    label: "Gyömbéres-lime-os",
+    ingredient: "Gyömbér, lime és gluténmentes tamari",
+    amount: "ízlés szerint",
+    allergens: [] as string[],
+    extra: { kcal: 65, protein: 3, carbs: 9, fat: 2 },
+  },
+  {
+    key: "smoky",
+    label: "Füstös-paprikás",
+    ingredient: "Füstölt paprika, paradicsom és zöldfűszerek",
+    amount: "ízlés szerint",
+    allergens: [] as string[],
+    extra: { kcal: 70, protein: 2, carbs: 11, fat: 2 },
+  },
+  {
+    key: "almond",
+    label: "Mandulás-zöldfűszeres",
+    ingredient: "Mandula és friss zöldfűszerek",
+    amount: "15 g",
+    allergens: ["nuts"],
+    extra: { kcal: 90, protein: 3, carbs: 3, fat: 8 },
+  },
 ];
 
 function uniqueStrings(values: string[]) {
@@ -82,9 +151,7 @@ function buildStarterRecipes(): Recipe[] {
     for (const base of baseParts) {
       for (const flavor of flavorParts) {
         const id = `zenvyra-${protein.key}-${base.key}-${flavor.key}`;
-        const flavorExtra = flavor.key === "almond"
-          ? { kcal: 175, protein: 6, carbs: 6, fat: 15 }
-          : { kcal: 70, protein: 3, carbs: 12, fat: 2 };
+        const flavorExtra = flavor.extra;
         const oil = { kcal: 90, protein: 0, carbs: 0, fat: 10 };
 
         recipes.push({
@@ -112,13 +179,13 @@ function buildStarterRecipes(): Recipe[] {
   return recipes;
 }
 
-// 12 fehérjeforrás × 6 köret × 3 ízvilág = 216 külön receptvariáns.
+// 12 fehérjeforrás × 6 köret × 9 ízvilág = 648 külön receptvariáns.
 export const starterRecipes: Recipe[] = buildStarterRecipes();
 
 export function ensureStarterRecipes(storageKey: string): Recipe[] {
   if (typeof window === "undefined") return starterRecipes;
 
-  const seedKey = `${storageKey}:starter-v2-216`;
+  const seedKey = `${storageKey}:starter-v3-648`;
 
   try {
     const raw = window.localStorage.getItem(storageKey);
@@ -130,11 +197,12 @@ export function ensureStarterRecipes(storageKey: string): Recipe[] {
       return savedRecipes.length > 0 ? savedRecipes : starterRecipes;
     }
 
-    // Megtartjuk a felhasználó saját receptjeit, és melléjük tesszük a 216-os Zenvyra könyvtárat.
-    const byId = new Map<string, Recipe>();
-    for (const recipe of starterRecipes) byId.set(recipe.id, recipe);
-    for (const recipe of savedRecipes) byId.set(recipe.id, recipe);
-    const merged = Array.from(byId.values());
+    // A korábbi automatikusan generált Zenvyra recepteket frissítjük,
+    // a felhasználó saját receptjeit viszont változatlanul megtartjuk.
+    const customRecipes = savedRecipes.filter(
+      (recipe) => !recipe.id.startsWith("zenvyra-"),
+    );
+    const merged = [...starterRecipes, ...customRecipes];
 
     window.localStorage.setItem(storageKey, JSON.stringify(merged));
     window.localStorage.setItem(seedKey, "1");
