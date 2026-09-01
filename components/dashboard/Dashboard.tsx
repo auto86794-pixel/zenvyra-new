@@ -47,6 +47,7 @@ type Meal = {
   protein: number;
   carbs: number;
   fat: number;
+  consumed: boolean;
 };
 
 type FoodPreset = {
@@ -237,6 +238,7 @@ const initialMeals: Meal[] = [
     protein: 25,
     carbs: 42,
     fat: 12,
+    consumed: true,
   },
   {
     id: "demo-2",
@@ -246,6 +248,7 @@ const initialMeals: Meal[] = [
     protein: 42,
     carbs: 65,
     fat: 19,
+    consumed: true,
   },
   {
     id: "demo-3",
@@ -255,6 +258,7 @@ const initialMeals: Meal[] = [
     protein: 11,
     carbs: 19,
     fat: 12,
+    consumed: true,
   },
 ];
 
@@ -404,7 +408,9 @@ function loadSavedState(): SavedState {
     const saved = JSON.parse(raw) as Partial<SavedState>;
 
     return {
-      meals: Array.isArray(saved.meals) ? saved.meals : initialMeals,
+      meals: Array.isArray(saved.meals)
+        ? saved.meals.map((meal) => ({ ...meal, consumed: meal.consumed !== false }))
+        : initialMeals,
       water: typeof saved.water === "number" ? saved.water : 1200,
       movementDone:
         typeof saved.movementDone === "boolean" ? saved.movementDone : false,
@@ -543,7 +549,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const todayChallenge = challenges[todayPlanIndex % challenges.length];
   const todayChallengeDone = challengeProgress[todayChallenge.id][todayPlanIndex];
   const todayPathCompleted =
-    Number(meals.length > 0) + Number(movementDone) + Number(todayChallengeDone);
+    Number(meals.some((meal) => meal.consumed)) + Number(movementDone) + Number(todayChallengeDone);
   const generatedShoppingItems = useMemo(
     () => createShoppingList(profile?.goal ?? null),
     [profile?.goal],
@@ -682,7 +688,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         await Promise.all([
           supabase
             .from("meals")
-            .select("id, meal_type, food_name, kcal, protein_g, carbs_g, fat_g")
+            .select("id, meal_type, food_name, kcal, protein_g, carbs_g, fat_g, consumed")
             .eq("eaten_on", today)
             .order("created_at", { ascending: true }),
           supabase
@@ -733,6 +739,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           protein: Number(row.protein_g),
           carbs: Number(row.carbs_g),
           fat: Number(row.fat_g),
+          consumed: row.consumed !== false,
         }))
       );
 
@@ -787,7 +794,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   const totals = useMemo(
     () =>
-      meals.reduce(
+      meals.filter((meal) => meal.consumed).reduce(
         (sum, meal) => ({
           kcal: sum.kcal + meal.kcal,
           protein: sum.protein + meal.protein,
@@ -922,7 +929,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   ]);
 
   const nextStepTitle =
-    meals.length === 0
+    !meals.some((meal) => meal.consumed)
       ? dailyRecipeRecommendation
         ? `Következő: ${dailyRecipeRecommendation.recipe.name}`
         : "Következő: rögzíts egy étkezést"
@@ -1109,6 +1116,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       protein: Math.max(0, Math.round(parsedProtein)),
       carbs: Math.max(0, Math.round(parsedCarbs)),
       fat: Math.max(0, Math.round(parsedFat)),
+      consumed: true,
     };
 
     if (guestMode || !session?.user) {
@@ -1132,6 +1140,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         protein_g: draft.protein,
         carbs_g: draft.carbs,
         fat_g: draft.fat,
+        consumed: draft.consumed,
       })
       .select("id")
       .single();
@@ -1154,6 +1163,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       protein: Math.round(recipe.protein * ratio),
       carbs: Math.round(recipe.carbs * ratio),
       fat: Math.round(recipe.fat * ratio),
+      consumed: false,
     };
 
     if (guestMode || !session?.user) {
@@ -1171,6 +1181,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         protein_g: draft.protein,
         carbs_g: draft.carbs,
         fat_g: draft.fat,
+        consumed: false,
       })
       .select("id")
       .single();
@@ -1182,6 +1193,29 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
     setMeals((current) => [...current, { id: data.id, ...draft }]);
     return true;
+  }
+
+  async function markMealConsumed(id: string) {
+    const meal = meals.find((item) => item.id === id);
+    if (!meal || meal.consumed) return;
+
+    if (!guestMode && session?.user && !id.startsWith("demo-")) {
+      const { error } = await supabase
+        .from("meals")
+        .update({ consumed: true })
+        .eq("id", id);
+
+      if (error) {
+        setCloudMessage("Az étkezés elfogyasztásának mentése nem sikerült.");
+        return;
+      }
+    }
+
+    setMeals((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, consumed: true } : item,
+      ),
+    );
   }
 
   async function deleteMeal(id: string) {
@@ -1438,8 +1472,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               </div>
 
               <div className="today-path-steps">
-                <article className={meals.length > 0 ? "today-step complete" : "today-step"}>
-                  <div className="today-step-number">{meals.length > 0 ? "✓" : "1"}</div>
+                <article className={meals.some((meal) => meal.consumed) ? "today-step complete" : "today-step"}>
+                  <div className="today-step-number">{meals.some((meal) => meal.consumed) ? "✓" : "1"}</div>
                   <div className="today-step-copy">
                     <span>
                       ÉTKEZÉSI FÓKUSZ · {todayPlan.day}
@@ -1459,7 +1493,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   <button
                     type="button"
                     onClick={() => {
-                      if (meals.length > 0) {
+                      if (meals.some((meal) => !meal.consumed) || meals.some((meal) => meal.consumed)) {
                         setView("meals");
                         return;
                       }
@@ -1536,6 +1570,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                       </div>
                       <div className="meal-actions-inline">
                         <div className="meal-kcal">{meal.kcal} kcal</div>
+                        {!meal.consumed && (
+                          <button
+                            type="button"
+                            className="outline-button"
+                            onClick={() => void markMealConsumed(meal.id)}
+                          >
+                            Elfogyasztottam ✓
+                          </button>
+                        )}
+                        {meal.consumed && <span className="meal-status">Elfogyasztva ✓</span>}
                         <button
                           type="button"
                           className="meal-delete"
@@ -1897,6 +1941,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   </div>
                   <div className="meal-actions-inline">
                     <div className="meal-kcal">{meal.kcal} kcal</div>
+                    {!meal.consumed && (
+                      <button
+                        type="button"
+                        className="outline-button"
+                        onClick={() => void markMealConsumed(meal.id)}
+                      >
+                        Elfogyasztottam ✓
+                      </button>
+                    )}
+                    {meal.consumed && <span className="meal-status">Elfogyasztva ✓</span>}
                     <button
                       type="button"
                       className="meal-delete"
