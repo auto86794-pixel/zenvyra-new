@@ -55,7 +55,7 @@ export default function HomePage() {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, onboarding_completed"
+          "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, diet_style, allergens, disliked_ingredients, preferred_workout_minutes, preferred_workout_level, onboarding_completed"
         )
         .eq("id", userId)
         .maybeSingle();
@@ -126,6 +126,7 @@ export default function HomePage() {
         session={session}
         guestMode={guestMode}
         profile={profile}
+        onProfileChange={setProfile}
       />
     );
   }

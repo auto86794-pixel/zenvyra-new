@@ -6,6 +6,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
 import RecipesView, {
+  ensureStarterRecipes,
   type Recipe,
   type RecipeIngredient,
 } from "@/components/dashboard/RecipesView";
@@ -14,6 +15,10 @@ import MovementView, {
   type Workout,
   workoutLibrary,
 } from "@/components/dashboard/MovementView";
+import PreferencesPanel, {
+  defaultPreferences,
+  type PersonalPreferences,
+} from "@/components/dashboard/PreferencesPanel";
 
 type View =
   | "today"
@@ -31,6 +36,7 @@ type Props = {
   session?: Session | null;
   guestMode?: boolean;
   profile?: ZenvyraProfile | null;
+  onProfileChange?: (profile: ZenvyraProfile) => void;
 };
 
 type Meal = {
@@ -430,7 +436,17 @@ function loadSavedState(): SavedState {
   }
 }
 
-export default function Dashboard({ onSignOut, session = null, guestMode = false, profile = null }: Props) {
+function loadGuestPreferences(): PersonalPreferences {
+  if (typeof window === "undefined") return defaultPreferences;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem("zenvyra-personal-preferences") ?? "null");
+    return saved && typeof saved === "object" ? { ...defaultPreferences, ...saved } : defaultPreferences;
+  } catch {
+    return defaultPreferences;
+  }
+}
+
+export default function Dashboard({ onSignOut, session = null, guestMode = false, profile = null, onProfileChange }: Props) {
   const initial = useMemo(() => loadSavedState(), []);
   const challengeStorageKey = `${CHALLENGE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const shoppingStorageKey = `${SHOPPING_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
@@ -465,6 +481,19 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     initialShopping.customItems,
   );
   const [newShoppingItem, setNewShoppingItem] = useState("");
+  const [preferences, setPreferences] = useState<PersonalPreferences>(() =>
+    profile
+      ? {
+          diet_type: profile.diet_type ?? "omnivore",
+          allergens: profile.allergens ?? [],
+          disliked_ingredients: profile.disliked_ingredients ?? [],
+          workout_minutes: profile.workout_minutes ?? 20,
+          fitness_level: profile.fitness_level ?? "beginner",
+          movement_limitations: profile.movement_limitations ?? [],
+        }
+      : loadGuestPreferences(),
+  );
+  const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
 
   const [mealModalOpen, setMealModalOpen] = useState(false);
   const [quickModalOpen, setQuickModalOpen] = useState(false);
@@ -491,7 +520,26 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
   const todayPlanIndex = useMemo(() => (new Date().getDay() + 6) % 7, []);
   const todayPlan = weeklyPlan[todayPlanIndex];
-  const todayWorkout = workoutLibrary[todayPlanIndex % workoutLibrary.length];
+  const recommendedWorkouts = useMemo(() => {
+    const levelRank: Record<Workout["level"], number> = {
+      Kezdő: 1,
+      Középhaladó: 2,
+      Haladó: 3,
+    };
+    const preferredRank =
+      preferences.fitness_level === "advanced"
+        ? 3
+        : preferences.fitness_level === "intermediate"
+          ? 2
+          : 1;
+
+    return workoutLibrary.filter(
+      (workout) =>
+        workout.minutes <= preferences.workout_minutes &&
+        levelRank[workout.level] <= preferredRank,
+    );
+  }, [preferences.fitness_level, preferences.workout_minutes]);
+  const todayWorkout = (recommendedWorkouts.length > 0 ? recommendedWorkouts : workoutLibrary)[todayPlanIndex % Math.max(1, recommendedWorkouts.length || workoutLibrary.length)];
   const todayChallenge = challenges[todayPlanIndex % challenges.length];
   const todayChallengeDone = challengeProgress[todayChallenge.id][todayPlanIndex];
   const todayPathCompleted =
@@ -518,6 +566,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       food.name.toLocaleLowerCase("hu").includes(query)
     );
   }, [foodName]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSavedRecipes(ensureStarterRecipes(recipeStorageKey));
+  }, [recipeStorageKey, view]);
 
   useEffect(() => {
     if (!guestMode) return;
@@ -745,6 +798,139 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       ),
     [meals]
   );
+
+  const compatibleSavedRecipes = useMemo(
+    () =>
+      savedRecipes.filter((recipe) => {
+        const recipeDiet = recipe.dietStyle ?? "omnivore";
+        const dietMatches =
+          preferences.diet_type === "omnivore" ||
+          (preferences.diet_type === "vegetarian" && recipeDiet !== "omnivore") ||
+          (preferences.diet_type === "vegan" && recipeDiet === "vegan");
+
+        const allergenMatches = !(recipe.allergens ?? []).some((item) =>
+          preferences.allergens.includes(item),
+        );
+
+        const ingredientMatches = !recipe.ingredients.some((ingredient) => {
+          const ingredientName = ingredient.name.toLocaleLowerCase("hu");
+          return preferences.disliked_ingredients.some((item) =>
+            ingredientName.includes(item),
+          );
+        });
+
+        return dietMatches && allergenMatches && ingredientMatches;
+      }),
+    [preferences, savedRecipes],
+  );
+
+  const dailyRecipeRecommendation = useMemo(() => {
+    if (compatibleSavedRecipes.length === 0) return null;
+
+    const remainingCalories = Math.max(0, dailyGoal - totals.kcal);
+    const remainingProtein = Math.max(
+      0,
+      (profile?.protein_target_g ?? 0) - totals.protein,
+    );
+    const remainingCarbs = Math.max(
+      0,
+      (profile?.carbs_target_g ?? 0) - totals.carbs,
+    );
+    const remainingFat = Math.max(
+      0,
+      (profile?.fat_target_g ?? 0) - totals.fat,
+    );
+
+    const targetMeal = {
+      kcal: Math.max(
+        250,
+        Math.min(
+          remainingCalories || dailyGoal * 0.3,
+          dailyGoal * 0.35,
+        ),
+      ),
+      protein:
+        profile?.protein_target_g
+          ? Math.min(remainingProtein || profile.protein_target_g * 0.3, profile.protein_target_g * 0.35)
+          : 0,
+      carbs:
+        profile?.carbs_target_g
+          ? Math.min(remainingCarbs || profile.carbs_target_g * 0.3, profile.carbs_target_g * 0.35)
+          : 0,
+      fat:
+        profile?.fat_target_g
+          ? Math.min(remainingFat || profile.fat_target_g * 0.3, profile.fat_target_g * 0.35)
+          : 0,
+    };
+
+    const scored = compatibleSavedRecipes
+      .map((recipe) => {
+        const servings = Math.max(1, recipe.servings);
+        const perServing = {
+          kcal: recipe.kcal / servings,
+          protein: recipe.protein / servings,
+          carbs: recipe.carbs / servings,
+          fat: recipe.fat / servings,
+        };
+
+        const pairs = [
+          [perServing.kcal, targetMeal.kcal],
+          [perServing.protein, targetMeal.protein],
+          [perServing.carbs, targetMeal.carbs],
+          [perServing.fat, targetMeal.fat],
+        ].filter(([, target]) => target > 0);
+
+        const normalized = pairs.map(([value, target]) => value / target);
+        const numerator = normalized.reduce((sum, value) => sum + value, 0);
+        const denominator = normalized.reduce(
+          (sum, value) => sum + value * value,
+          0,
+        );
+        const rawPortions =
+          denominator > 0 ? numerator / denominator : 1;
+        const portions = Math.max(
+          0.5,
+          Math.min(3, Math.round(rawPortions * 2) / 2),
+        );
+
+        const score = pairs.reduce((sum, [value, target]) => {
+          const difference = (value * portions - target) / target;
+          return sum + difference * difference;
+        }, 0);
+
+        return {
+          recipe,
+          portions,
+          kcal: Math.round(perServing.kcal * portions),
+          protein: Math.round(perServing.protein * portions),
+          score,
+        };
+      })
+      .sort((a, b) => a.score - b.score);
+
+    return scored[0] ?? null;
+  }, [
+    compatibleSavedRecipes,
+    dailyGoal,
+    profile?.carbs_target_g,
+    profile?.fat_target_g,
+    profile?.protein_target_g,
+    totals.carbs,
+    totals.fat,
+    totals.kcal,
+    totals.protein,
+  ]);
+
+  const nextStepTitle =
+    meals.length === 0
+      ? dailyRecipeRecommendation
+        ? `Következő: ${dailyRecipeRecommendation.recipe.name}`
+        : "Következő: rögzíts egy étkezést"
+      : !movementDone
+        ? `Következő: ${todayWorkout.title}`
+        : !todayChallengeDone
+          ? `Következő: ${todayChallenge.title}`
+          : "Mára minden lépésed kész.";
 
   const caloriesPercent = Math.min(
     100,
@@ -1222,7 +1408,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <div className="summary-card-top">
                   <div>
                     <span className="summary-label">Mozgás</span>
-                    <strong>{movementDone ? "Kész" : "20 perc"}</strong>
+                    <strong>{movementDone ? "Kész" : `${todayWorkout.minutes} perc`}</strong>
                   </div>
                   <div className="summary-icon">⌁</div>
                 </div>
@@ -1241,7 +1427,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               <div className="today-path-heading">
                 <div>
                   <span className="card-kicker">SZEMÉLYRE SZABOTT MAI ÚTVONAL</span>
-                  <h2 id="today-path-title">Három finom lépés mára.</h2>
+                  <h2 id="today-path-title">{nextStepTitle}</h2>
                   <p>Nem kötelező lista — egyetlen teljesített lépés is jó irány.</p>
                 </div>
                 <div className="today-path-progress">
@@ -1255,12 +1441,43 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <article className={meals.length > 0 ? "today-step complete" : "today-step"}>
                   <div className="today-step-number">{meals.length > 0 ? "✓" : "1"}</div>
                   <div className="today-step-copy">
-                    <span>ÉTKEZÉSI FÓKUSZ · {todayPlan.day}</span>
-                    <h3>{todayPlan.food}</h3>
-                    <p>Használd iránynak, és válassz olyan ételt, ami most jól esik.</p>
+                    <span>
+                      ÉTKEZÉSI FÓKUSZ · {todayPlan.day}
+                      {dailyRecipeRecommendation ? " · SZEMÉLYES AJÁNLÁS" : ""}
+                    </span>
+                    <h3>
+                      {dailyRecipeRecommendation
+                        ? `${dailyRecipeRecommendation.recipe.name} · ${String(dailyRecipeRecommendation.portions).replace(".", ",")} adag`
+                        : todayPlan.food}
+                    </h3>
+                    <p>
+                      {dailyRecipeRecommendation
+                        ? `Kb. ${dailyRecipeRecommendation.kcal} kcal és ${dailyRecipeRecommendation.protein} g fehérje. A megadott étrendi, allergén- és alapanyag-szűrők alapján választva.`
+                        : "Ments el néhány saját receptet, és itt személyre szabott recept- és adagjavaslat jelenik meg."}
+                    </p>
                   </div>
-                  <button type="button" onClick={meals.length > 0 ? () => setView("meals") : openMealModal}>
-                    {meals.length > 0 ? "Mai étkezések →" : "Étkezés rögzítése →"}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (meals.length > 0) {
+                        setView("meals");
+                        return;
+                      }
+                      if (dailyRecipeRecommendation) {
+                        void addRecipeToMeals(
+                          dailyRecipeRecommendation.recipe,
+                          dailyRecipeRecommendation.portions,
+                        );
+                        return;
+                      }
+                      setView("recipes");
+                    }}
+                  >
+                    {meals.length > 0
+                      ? "Mai étkezések →"
+                      : dailyRecipeRecommendation
+                        ? "Ajánlott adag hozzáadása →"
+                        : "Receptek megnyitása →"}
                   </button>
                 </article>
 
@@ -1584,6 +1801,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             storageKey={recipeStorageKey}
             onAddMeal={addRecipeToMeals}
             onAddShopping={addRecipeIngredientsToShopping}
+            preferences={preferences}
           />
         )}
 
@@ -1698,11 +1916,25 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )}
 
         {view === "movement" && (
-          <MovementView history={movementHistory} onComplete={completeWorkout} />
+          <MovementView
+            history={movementHistory}
+            onComplete={completeWorkout}
+            preferredMinutes={preferences.workout_minutes}
+            preferredLevel={preferences.fitness_level}
+          />
         )}
 
         {view === "wellbeing" && (
           <section className="dashboard-content-grid">
+            <PreferencesPanel
+              session={session}
+              guestMode={guestMode}
+              initial={preferences}
+              onChange={(next) => {
+                setPreferences(next);
+                if (profile && onProfileChange) onProfileChange({ ...profile, ...next });
+              }}
+            />
             <article className="dashboard-card">
               <span className="card-kicker">KÖZÉRZET</span>
               <h2>Mai állapot</h2>

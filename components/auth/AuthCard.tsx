@@ -9,34 +9,9 @@ export type AuthMode = "login" | "register" | "forgot";
 type Props = {
   mode: AuthMode;
   onModeChange: (mode: AuthMode) => void;
-  onSuccess: () => void;
-  onGuest: () => void;
+  onSuccess?: () => void | Promise<void>;
+  onGuest?: () => void;
 };
-
-function readableAuthError(message: string) {
-  const normalized = message.toLowerCase();
-
-  if (normalized.includes("invalid login credentials")) {
-    return "Hibás e-mail cím vagy jelszó.";
-  }
-
-  if (normalized.includes("email not confirmed")) {
-    return "Az e-mail címed még nincs megerősítve. Nézd meg a leveleid.";
-  }
-
-  if (
-    normalized.includes("user already registered") ||
-    normalized.includes("already been registered")
-  ) {
-    return "Ehhez az e-mail címhez már tartozik fiók.";
-  }
-
-  if (normalized.includes("password")) {
-    return "A jelszó nem felel meg a követelményeknek.";
-  }
-
-  return message;
-}
 
 export default function AuthCard({
   mode,
@@ -53,132 +28,130 @@ export default function AuthCard({
   const [success, setSuccess] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  function changeMode(next: AuthMode) {
+  const changeMode = (next: AuthMode) => {
     setMessage("");
     setSuccess(false);
     setPassword("");
     setPasswordAgain("");
     setShowPassword(false);
     onModeChange(next);
-  }
+  };
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
     setSuccess(false);
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = email.trim();
 
-    if (!cleanEmail || !cleanEmail.includes("@")) {
+    if (!cleanEmail) {
+      setMessage("Add meg az e-mail címed.");
+      return;
+    }
+
+    if (!cleanEmail.includes("@")) {
       setMessage("Adj meg érvényes e-mail címet.");
       return;
     }
 
-    if (mode === "forgot") {
-      setBusy(true);
+    setBusy(true);
 
-      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: window.location.origin,
-      });
+    try {
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: window.location.origin,
+        });
 
-      setBusy(false);
+        if (error) throw error;
 
-      if (error) {
-        setMessage(readableAuthError(error.message));
+        setSuccess(true);
+        setMessage("Elküldtük a jelszó-visszaállító levelet.");
         return;
       }
 
-      setSuccess(true);
-      setMessage("Elküldtük a jelszó-visszaállító levelet.");
-      return;
-    }
+      if (mode === "register") {
+        if (name.trim().length < 2) {
+          setMessage("Add meg a neved.");
+          return;
+        }
 
-    if (password.length < 8) {
-      setMessage("A jelszó legalább 8 karakter legyen.");
-      return;
-    }
+        if (password.length < 8) {
+          setMessage("A jelszó legalább 8 karakter legyen.");
+          return;
+        }
 
-    if (mode === "register") {
-      if (name.trim().length < 2) {
-        setMessage("Add meg a neved.");
+        if (password !== passwordAgain) {
+          setMessage("A két jelszó nem egyezik.");
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            data: {
+              name: name.trim(),
+              display_name: name.trim(),
+            },
+            emailRedirectTo: window.location.origin,
+          },
+        });
+
+        if (error) throw error;
+
+        if (data.session) {
+          setSuccess(true);
+          setMessage("A fiókod elkészült. Beléptetünk…");
+          await onSuccess?.();
+          return;
+        }
+
+        setSuccess(true);
+        setMessage(
+          "Elküldtük a megerősítő levelet. Nyisd meg a benne lévő hivatkozást, majd jelentkezz be.",
+        );
         return;
       }
 
-      if (password !== passwordAgain) {
-        setMessage("A két jelszó nem egyezik.");
+      if (password.length < 8) {
+        setMessage("A jelszó legalább 8 karakter legyen.");
         return;
       }
 
-      setBusy(true);
-
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
-        options: {
-          data: {
-            display_name: name.trim(),
-          },
-          emailRedirectTo: window.location.origin,
-        },
       });
 
-      setBusy(false);
-
-      if (error) {
-        setMessage(readableAuthError(error.message));
-        return;
-      }
-
-      if (data.session) {
-        onSuccess();
-        return;
-      }
+      if (error) throw error;
 
       setSuccess(true);
-      setMessage(
-        "A fiók elkészült. Küldtünk egy megerősítő e-mailt; kattints a benne lévő linkre."
-      );
-      return;
-    }
+      setMessage("Sikeres bejelentkezés. Betöltjük a Zenvyrát…");
+      await onSuccess?.();
+    } catch (error) {
+      const raw =
+        error instanceof Error ? error.message : "A művelet nem sikerült.";
 
-    setBusy(true);
+      setSuccess(false);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password,
-    });
-
-    setBusy(false);
-
-    if (error) {
-      setMessage(readableAuthError(error.message));
-      return;
-    }
-
-    onSuccess();
-  }
-
-  async function socialLogin(provider: "google" | "apple") {
-    setMessage("");
-    setSuccess(false);
-    setBusy(true);
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-
-    if (error) {
+      if (raw.toLowerCase().includes("invalid login credentials")) {
+        setMessage("Hibás e-mail-cím vagy jelszó.");
+      } else if (
+        raw.toLowerCase().includes("already registered") ||
+        raw.toLowerCase().includes("user already registered")
+      ) {
+        setMessage("Ehhez az e-mail-címhez már tartozik fiók.");
+      } else if (raw.toLowerCase().includes("email rate limit")) {
+        setMessage(
+          "Túl sok e-mail-kérés érkezett rövid idő alatt. Próbáld újra néhány perc múlva.",
+        );
+      } else {
+        setMessage(raw);
+      }
+    } finally {
       setBusy(false);
-      setMessage(
-        provider === "google"
-          ? "A Google-belépés még nincs engedélyezve a Supabase-ben."
-          : "Az Apple-belépés még nincs engedélyezve a Supabase-ben."
-      );
     }
-  }
+  };
 
   return (
     <div className="login-card">
@@ -187,8 +160,8 @@ export default function AuthCard({
           {mode === "register"
             ? "Szia!"
             : mode === "forgot"
-              ? "Új jelszó"
-              : "Üdv újra!"}
+            ? "Új jelszó"
+            : "Üdv újra!"}
         </h2>
 
         <div className="accent-line" />
@@ -197,30 +170,28 @@ export default function AuthCard({
           {mode === "register"
             ? "Hozd létre a fiókod pár lépésben."
             : mode === "forgot"
-              ? "Add meg az e-mail címed, és segítünk visszalépni."
-              : "Jelentkezz be, és folytasd, ahol abbahagytad."}
+            ? "Add meg az e-mail címed, és segítünk visszalépni."
+            : "Jelentkezz be, és folytasd, ahol abbahagytad."}
         </p>
       </header>
 
-      {mode !== "forgot" && (
-        <div className="auth-tabs">
-          <button
-            type="button"
-            className={mode === "login" ? "active" : ""}
-            onClick={() => changeMode("login")}
-          >
-            Belépés
-          </button>
+      <div className="auth-tabs">
+        <button
+          type="button"
+          className={mode === "login" ? "active" : ""}
+          onClick={() => changeMode("login")}
+        >
+          Belépés
+        </button>
 
-          <button
-            type="button"
-            className={mode === "register" ? "active" : ""}
-            onClick={() => changeMode("register")}
-          >
-            Regisztráció
-          </button>
-        </div>
-      )}
+        <button
+          type="button"
+          className={mode === "register" ? "active" : ""}
+          onClick={() => changeMode("register")}
+        >
+          Regisztráció
+        </button>
+      </div>
 
       <form className="login-form" onSubmit={submit}>
         {mode === "register" && (
@@ -230,9 +201,8 @@ export default function AuthCard({
               type="text"
               placeholder="Neved"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(e) => setName(e.target.value)}
               autoComplete="name"
-              disabled={busy}
             />
           </label>
         )}
@@ -243,9 +213,8 @@ export default function AuthCard({
             type="email"
             placeholder="E-mail cím"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
-            disabled={busy}
           />
         </label>
 
@@ -256,17 +225,17 @@ export default function AuthCard({
               type={showPassword ? "text" : "password"}
               placeholder="Jelszó"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === "register" ? "new-password" : "current-password"}
-              disabled={busy}
             />
 
             <button
               type="button"
               className="eye-button"
               onClick={() => setShowPassword((value) => !value)}
-              aria-label={showPassword ? "Jelszó elrejtése" : "Jelszó megjelenítése"}
-              disabled={busy}
+              aria-label={
+                showPassword ? "Jelszó elrejtése" : "Jelszó megjelenítése"
+              }
             >
               {showPassword ? "◉" : "○"}
             </button>
@@ -280,9 +249,8 @@ export default function AuthCard({
               type={showPassword ? "text" : "password"}
               placeholder="Jelszó újra"
               value={passwordAgain}
-              onChange={(event) => setPasswordAgain(event.target.value)}
+              onChange={(e) => setPasswordAgain(e.target.value)}
               autoComplete="new-password"
-              disabled={busy}
             />
           </label>
         )}
@@ -298,7 +266,6 @@ export default function AuthCard({
               type="button"
               className="text-link"
               onClick={() => changeMode("forgot")}
-              disabled={busy}
             >
               Elfelejtetted?
             </button>
@@ -313,13 +280,13 @@ export default function AuthCard({
 
         <button className="login-button" type="submit" disabled={busy}>
           {busy
-            ? "Dolgozom…"
+            ? "Dolgozunk…"
             : mode === "register"
-              ? "Regisztráció"
-              : mode === "forgot"
-                ? "Link küldése"
-                : "Bejelentkezés"}
-          {!busy && <span aria-hidden="true">→</span>}
+            ? "Regisztráció"
+            : mode === "forgot"
+            ? "Link küldése"
+            : "Bejelentkezés"}
+          <span aria-hidden="true">→</span>
         </button>
       </form>
 
@@ -334,9 +301,18 @@ export default function AuthCard({
           <div className="social-stack">
             <button
               type="button"
-              className="social-button google"
-              onClick={() => socialLogin("google")}
-              disabled={busy}
+              className="social-button"
+              onClick={async () => {
+                setMessage("");
+                const { error } = await supabase.auth.signInWithOAuth({
+                  provider: "google",
+                  options: { redirectTo: window.location.origin },
+                });
+                if (error) {
+                  setSuccess(false);
+                  setMessage(error.message);
+                }
+              }}
             >
               <b className="google-g">G</b>
               <span>Folytatás Google-lal</span>
@@ -344,23 +320,34 @@ export default function AuthCard({
 
             <button
               type="button"
-              className="social-button apple"
-              onClick={() => socialLogin("apple")}
-              disabled={busy}
+              className="social-button"
+              onClick={async () => {
+                setMessage("");
+                const { error } = await supabase.auth.signInWithOAuth({
+                  provider: "apple",
+                  options: { redirectTo: window.location.origin },
+                });
+                if (error) {
+                  setSuccess(false);
+                  setMessage(error.message);
+                }
+              }}
             >
               <b className="apple-dot">●</b>
               <span>Folytatás Apple-lel</span>
             </button>
+          </div>
 
+          {onGuest && (
             <button
               type="button"
-              className="guest-button"
+              className="text-link"
               onClick={onGuest}
-              disabled={busy}
+              style={{ marginTop: 14 }}
             >
               Megnézem vendégként
             </button>
-          </div>
+          )}
         </>
       )}
 
@@ -368,7 +355,7 @@ export default function AuthCard({
         {mode === "login" && (
           <>
             <span>Még nincs fiókod?</span>
-            <button type="button" onClick={() => changeMode("register")} disabled={busy}>
+            <button type="button" onClick={() => changeMode("register")}>
               Regisztrálok most →
             </button>
           </>
@@ -377,14 +364,14 @@ export default function AuthCard({
         {mode === "register" && (
           <>
             <span>Már van fiókod?</span>
-            <button type="button" onClick={() => changeMode("login")} disabled={busy}>
+            <button type="button" onClick={() => changeMode("login")}>
               Bejelentkezés →
             </button>
           </>
         )}
 
         {mode === "forgot" && (
-          <button type="button" onClick={() => changeMode("login")} disabled={busy}>
+          <button type="button" onClick={() => changeMode("login")}>
             ← Vissza a bejelentkezéshez
           </button>
         )}
