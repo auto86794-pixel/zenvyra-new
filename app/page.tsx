@@ -43,17 +43,22 @@ export default function HomePage() {
 
   const [profile, setProfile] = useState<ZenvyraProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    async function syncSession() {
+      const { data } = await supabase.auth.getSession();
+
       if (!mounted) return;
 
       setSession(data.session);
       setProfileReady(data.session ? false : true);
       setAuthReady(true);
-    });
+    }
+
+    void syncSession();
 
     const {
       data: { subscription },
@@ -65,11 +70,45 @@ export default function HomePage() {
       setProfile(null);
       setProfileReady(nextSession ? false : true);
       setAuthReady(true);
+
+      if (nextSession) {
+        setProfileReloadKey((current) => current + 1);
+      }
     });
+
+    const handlePageShow = () => {
+      void (async () => {
+        const { data } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        setSession(data.session);
+        setAuthReady(true);
+
+        if (data.session) {
+          setProfileReady(false);
+          setProfileReloadKey((current) => current + 1);
+        } else {
+          setProfile(null);
+          setProfileReady(true);
+        }
+      })();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handlePageShow();
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -110,7 +149,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, profileReloadKey]);
 
   async function handleSignOut() {
     if (guestMode) {
