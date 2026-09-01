@@ -10,6 +10,31 @@ import ProfileOnboarding, {
 } from "@/components/onboarding/ProfileOnboarding";
 import { supabase } from "@/lib/supabase/client";
 
+const PROFILE_SELECT =
+  "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed";
+
+function normalizeProfile(data: any): ZenvyraProfile {
+  return {
+    ...data,
+    height_cm: data.height_cm === null ? null : Number(data.height_cm),
+    current_weight_kg:
+      data.current_weight_kg === null ? null : Number(data.current_weight_kg),
+    target_weight_kg:
+      data.target_weight_kg === null ? null : Number(data.target_weight_kg),
+    allergens: Array.isArray(data.allergens) ? data.allergens : [],
+    diet_type: data.diet_type ?? "omnivore",
+    disliked_ingredients: Array.isArray(data.disliked_ingredients)
+      ? data.disliked_ingredients
+      : [],
+    workout_minutes: data.workout_minutes ?? 20,
+    fitness_level: data.fitness_level ?? "beginner",
+    movement_limitations: Array.isArray(data.movement_limitations)
+      ? data.movement_limitations
+      : [],
+    onboarding_completed: data.onboarding_completed === true,
+  } as ZenvyraProfile;
+}
+
 export default function HomePage() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<Session | null>(null);
@@ -24,7 +49,9 @@ export default function HomePage() {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+
       setSession(data.session);
+      setProfileReady(data.session ? false : true);
       setAuthReady(true);
     });
 
@@ -32,8 +59,11 @@ export default function HomePage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!mounted) return;
+
       setSession(nextSession);
       setGuestMode(false);
+      setProfile(null);
+      setProfileReady(nextSession ? false : true);
       setAuthReady(true);
     });
 
@@ -44,7 +74,11 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!session?.user) return;
+    if (!session?.user) {
+      setProfile(null);
+      setProfileReady(true);
+      return;
+    }
 
     let active = true;
     const userId = session.user.id;
@@ -54,31 +88,20 @@ export default function HomePage() {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select(
-          "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, diet_style, allergens, disliked_ingredients, preferred_workout_minutes, preferred_workout_level, onboarding_completed"
-        )
+        .select(PROFILE_SELECT)
         .eq("id", userId)
         .maybeSingle();
 
       if (!active) return;
 
-      if (error || !data) {
+      if (error) {
+        console.error("Profile load error:", error);
         setProfile(null);
-      } else {
-        setProfile({
-          ...data,
-          height_cm: data.height_cm === null ? null : Number(data.height_cm),
-          current_weight_kg:
-            data.current_weight_kg === null
-              ? null
-              : Number(data.current_weight_kg),
-          target_weight_kg:
-            data.target_weight_kg === null
-              ? null
-              : Number(data.target_weight_kg),
-        } as ZenvyraProfile);
+        setProfileReady(true);
+        return;
       }
 
+      setProfile(data ? normalizeProfile(data) : null);
       setProfileReady(true);
     }
 
@@ -87,17 +110,20 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [session?.user]);
+  }, [session?.user?.id]);
 
   async function handleSignOut() {
     if (guestMode) {
       setGuestMode(false);
+      setProfile(null);
+      setProfileReady(true);
       return;
     }
 
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
+    setProfileReady(true);
   }
 
   if (!authReady || (session && !profileReady)) {
@@ -109,7 +135,7 @@ export default function HomePage() {
     );
   }
 
-  if (session && !profile?.onboarding_completed) {
+  if (session && profileReady && !profile?.onboarding_completed) {
     return (
       <ProfileOnboarding
         session={session}
