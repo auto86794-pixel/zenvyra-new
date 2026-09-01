@@ -822,7 +822,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         const ingredientMatches = !recipe.ingredients.some((ingredient) => {
           const ingredientName = ingredient.name.toLocaleLowerCase("hu");
           return preferences.disliked_ingredients.some((item) =>
-            ingredientName.includes(item),
+            ingredientName.includes(item.trim().toLocaleLowerCase("hu")),
           );
         });
 
@@ -938,56 +938,73 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       fat: profile?.fat_target_g ? profile.fat_target_g * 0.3 : 0,
     };
 
-    return weeklyPlan.map((day, dayIndex) => {
-      const scored = compatibleSavedRecipes
-        .map((recipe, recipeIndex) => {
-          const servings = Math.max(1, recipe.servings);
-          const perServing = {
-            kcal: recipe.kcal / servings,
-            protein: recipe.protein / servings,
-            carbs: recipe.carbs / servings,
-            fat: recipe.fat / servings,
-          };
+    const scoredRecipes = compatibleSavedRecipes
+      .map((recipe) => {
+        const servings = Math.max(1, recipe.servings);
+        const perServing = {
+          kcal: recipe.kcal / servings,
+          protein: recipe.protein / servings,
+          carbs: recipe.carbs / servings,
+          fat: recipe.fat / servings,
+        };
 
-          const pairs = [
-            [perServing.kcal, targetMeal.kcal],
-            [perServing.protein, targetMeal.protein],
-            [perServing.carbs, targetMeal.carbs],
-            [perServing.fat, targetMeal.fat],
-          ].filter(([, target]) => target > 0);
+        const pairs = [
+          [perServing.kcal, targetMeal.kcal],
+          [perServing.protein, targetMeal.protein],
+          [perServing.carbs, targetMeal.carbs],
+          [perServing.fat, targetMeal.fat],
+        ].filter(([, target]) => target > 0);
 
-          const normalized = pairs.map(([value, target]) => value / target);
-          const numerator = normalized.reduce((sum, value) => sum + value, 0);
-          const denominator = normalized.reduce(
-            (sum, value) => sum + value * value,
-            0,
-          );
-          const rawPortions = denominator > 0 ? numerator / denominator : 1;
-          const portions = Math.max(0.5, Math.min(3, Math.round(rawPortions * 2) / 2));
+        const normalized = pairs.map(([value, target]) => value / target);
+        const numerator = normalized.reduce((sum, value) => sum + value, 0);
+        const denominator = normalized.reduce(
+          (sum, value) => sum + value * value,
+          0,
+        );
+        const rawPortions = denominator > 0 ? numerator / denominator : 1;
+        const portions = Math.max(
+          0.5,
+          Math.min(3, Math.round(rawPortions * 2) / 2),
+        );
 
-          const nutritionScore = pairs.reduce((sum, [value, target]) => {
-            const difference = (value * portions - target) / target;
-            return sum + difference * difference;
-          }, 0);
+        const nutritionScore = pairs.reduce((sum, [value, target]) => {
+          const difference = (value * portions - target) / target;
+          return sum + difference * difference;
+        }, 0);
 
-          // Enyhe forgatás, hogy ne ugyanaz a recept kerüljön minden napra.
-          const rotationPenalty = ((recipeIndex - dayIndex + compatibleSavedRecipes.length) % compatibleSavedRecipes.length) * 0.035;
+        return {
+          recipe,
+          portions,
+          kcal: Math.round(perServing.kcal * portions),
+          protein: Math.round(perServing.protein * portions),
+          carbs: Math.round(perServing.carbs * portions),
+          fat: Math.round(perServing.fat * portions),
+          score: nutritionScore,
+        };
+      })
+      .sort((a, b) => a.score - b.score || a.recipe.name.localeCompare(b.recipe.name, "hu"));
 
-          return {
-            recipe,
-            portions,
-            kcal: Math.round(perServing.kcal * portions),
-            protein: Math.round(perServing.protein * portions),
-            carbs: Math.round(perServing.carbs * portions),
-            fat: Math.round(perServing.fat * portions),
-            score: nutritionScore + rotationPenalty,
-          };
-        })
-        .sort((a, b) => a.score - b.score);
+    // Először minden, a felhasználó szűrőinek megfelelő receptet egyszer használunk.
+    // Csak akkor ismétlünk, ha kevesebb megfelelő recept van, mint nap a héten.
+    const unusedRecipeIds = new Set(scoredRecipes.map((item) => item.recipe.id));
+
+    return weeklyPlan.map((day) => {
+      let selected = scoredRecipes.find((item) => unusedRecipeIds.has(item.recipe.id));
+
+      if (!selected) {
+        scoredRecipes.forEach((item) => unusedRecipeIds.add(item.recipe.id));
+        selected = scoredRecipes.find((item) => unusedRecipeIds.has(item.recipe.id));
+      }
+
+      if (!selected) {
+        return { day: day.day, recipe: null };
+      }
+
+      unusedRecipeIds.delete(selected.recipe.id);
 
       return {
         day: day.day,
-        ...scored[0],
+        ...selected,
       };
     });
   }, [
@@ -1802,7 +1819,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                       <div>
                         <i className="weekly-dot food-dot">◒</i>
                         <p>
-                          <span>Személyre szabott recept</span>
+                          <span>A megadott szűrők alapján megfelelő recept</span>
                           <strong>
                             {recommendation?.recipe
                               ? `${recommendation.recipe.name} · ${String(recommendation.portions).replace(".", ",")} adag`
