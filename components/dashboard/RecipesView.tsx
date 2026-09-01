@@ -29,40 +29,116 @@ type Props = {
   preferences: PersonalPreferences;
 };
 
+type RecipePart = {
+  key: string;
+  name: string;
+  amount: string;
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  dietStyle?: "omnivore" | "vegetarian" | "vegan";
+  allergens?: string[];
+};
+
+const proteinParts: RecipePart[] = [
+  { key: "chicken", name: "Csirkemell", amount: "300 g", kcal: 330, protein: 69, carbs: 0, fat: 6, dietStyle: "omnivore" },
+  { key: "turkey", name: "Pulykamell", amount: "300 g", kcal: 315, protein: 66, carbs: 0, fat: 5, dietStyle: "omnivore" },
+  { key: "salmon", name: "Lazac", amount: "260 g", kcal: 540, protein: 52, carbs: 0, fat: 34, dietStyle: "omnivore" },
+  { key: "tuna", name: "Tonhal", amount: "260 g", kcal: 300, protein: 62, carbs: 0, fat: 4, dietStyle: "omnivore" },
+  { key: "beef", name: "Sovány marhahús", amount: "280 g", kcal: 470, protein: 58, carbs: 0, fat: 24, dietStyle: "omnivore" },
+  { key: "egg", name: "Tojás", amount: "6 db", kcal: 430, protein: 38, carbs: 3, fat: 29, dietStyle: "vegetarian", allergens: ["egg"] },
+  { key: "tofu", name: "Natúr tofu", amount: "320 g", kcal: 390, protein: 40, carbs: 9, fat: 22, dietStyle: "vegan" },
+  { key: "chickpea", name: "Főtt csicseriborsó", amount: "320 g", kcal: 525, protein: 28, carbs: 88, fat: 8, dietStyle: "vegan" },
+  { key: "lentil", name: "Főtt lencse", amount: "340 g", kcal: 395, protein: 31, carbs: 68, fat: 2, dietStyle: "vegan" },
+  { key: "tempeh", name: "Tempeh", amount: "280 g", kcal: 540, protein: 53, carbs: 21, fat: 30, dietStyle: "vegan" },
+  { key: "cottage", name: "Cottage cheese", amount: "350 g", kcal: 350, protein: 43, carbs: 14, fat: 14, dietStyle: "vegetarian", allergens: ["milk"] },
+  { key: "beans", name: "Főtt vörösbab", amount: "340 g", kcal: 430, protein: 29, carbs: 77, fat: 2, dietStyle: "vegan" },
+];
+
+const baseParts: RecipePart[] = [
+  { key: "rice", name: "Főtt rizs", amount: "300 g", kcal: 390, protein: 8, carbs: 84, fat: 1 },
+  { key: "potato", name: "Burgonya", amount: "520 g", kcal: 400, protein: 10, carbs: 88, fat: 1 },
+  { key: "quinoa", name: "Főtt quinoa", amount: "300 g", kcal: 360, protein: 13, carbs: 64, fat: 6 },
+  { key: "pasta", name: "Főtt durumtészta", amount: "300 g", kcal: 465, protein: 17, carbs: 92, fat: 3, allergens: ["gluten"] },
+  { key: "bulgur", name: "Főtt bulgur", amount: "320 g", kcal: 265, protein: 10, carbs: 60, fat: 1, allergens: ["gluten"] },
+  { key: "sweetpotato", name: "Édesburgonya", amount: "500 g", kcal: 430, protein: 8, carbs: 100, fat: 1 },
+];
+
+const flavorParts = [
+  { key: "lemon", label: "Citromos-zöldfűszeres", ingredient: "Citrom és friss zöldfűszerek", amount: "ízlés szerint", allergens: [] as string[] },
+  { key: "mediterranean", label: "Mediterrán", ingredient: "Paradicsom, paprika és oregánó", amount: "300 g", allergens: [] as string[] },
+  { key: "almond", label: "Mandulás-zöldfűszeres", ingredient: "Mandula és friss zöldfűszerek", amount: "30 g", allergens: ["nuts"] },
+];
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function buildStarterRecipes(): Recipe[] {
+  const recipes: Recipe[] = [];
+
+  for (const protein of proteinParts) {
+    for (const base of baseParts) {
+      for (const flavor of flavorParts) {
+        const id = `zenvyra-${protein.key}-${base.key}-${flavor.key}`;
+        const flavorExtra = flavor.key === "almond"
+          ? { kcal: 175, protein: 6, carbs: 6, fat: 15 }
+          : { kcal: 70, protein: 3, carbs: 12, fat: 2 };
+        const oil = { kcal: 90, protein: 0, carbs: 0, fat: 10 };
+
+        recipes.push({
+          id,
+          name: `${flavor.label} ${protein.name.toLocaleLowerCase("hu")}-${base.name.toLocaleLowerCase("hu")} tál`,
+          servings: 2,
+          kcal: Math.round(protein.kcal + base.kcal + flavorExtra.kcal + oil.kcal),
+          protein: Math.round(protein.protein + base.protein + flavorExtra.protein),
+          carbs: Math.round(protein.carbs + base.carbs + flavorExtra.carbs),
+          fat: Math.round(protein.fat + base.fat + flavorExtra.fat + oil.fat),
+          dietStyle: protein.dietStyle ?? "omnivore",
+          allergens: uniqueStrings([...(protein.allergens ?? []), ...(base.allergens ?? []), ...flavor.allergens]),
+          ingredients: [
+            { id: `${id}-1`, name: protein.name, amount: protein.amount },
+            { id: `${id}-2`, name: base.name, amount: base.amount },
+            { id: `${id}-3`, name: flavor.ingredient, amount: flavor.amount },
+            { id: `${id}-4`, name: "Vegyes friss zöldség", amount: "300 g" },
+            { id: `${id}-5`, name: "Olívaolaj", amount: "2 teáskanál" },
+          ],
+        });
+      }
+    }
+  }
+
+  return recipes;
+}
+
+// 12 fehérjeforrás × 6 köret × 3 ízvilág = 216 külön receptvariáns.
+export const starterRecipes: Recipe[] = buildStarterRecipes();
+
 export function ensureStarterRecipes(storageKey: string): Recipe[] {
   if (typeof window === "undefined") return starterRecipes;
 
-  const seedKey = `${storageKey}:starter-v1`;
+  const seedKey = `${storageKey}:starter-v2-216`;
 
   try {
     const raw = window.localStorage.getItem(storageKey);
-    const alreadySeeded = window.localStorage.getItem(seedKey) === "1";
+    const alreadyUpgraded = window.localStorage.getItem(seedKey) === "1";
+    const saved = raw ? JSON.parse(raw) : [];
+    const savedRecipes: Recipe[] = Array.isArray(saved) ? saved : [];
 
-    if (raw === null) {
-      window.localStorage.setItem(storageKey, JSON.stringify(starterRecipes));
-      window.localStorage.setItem(seedKey, "1");
-      return starterRecipes;
+    if (alreadyUpgraded) {
+      return savedRecipes.length > 0 ? savedRecipes : starterRecipes;
     }
 
-    const saved = JSON.parse(raw);
+    // Megtartjuk a felhasználó saját receptjeit, és melléjük tesszük a 216-os Zenvyra könyvtárat.
+    const byId = new Map<string, Recipe>();
+    for (const recipe of starterRecipes) byId.set(recipe.id, recipe);
+    for (const recipe of savedRecipes) byId.set(recipe.id, recipe);
+    const merged = Array.from(byId.values());
 
-    if (Array.isArray(saved)) {
-      if (saved.length === 0 && !alreadySeeded) {
-        window.localStorage.setItem(storageKey, JSON.stringify(starterRecipes));
-        window.localStorage.setItem(seedKey, "1");
-        return starterRecipes;
-      }
-
-      if (!alreadySeeded) {
-        window.localStorage.setItem(seedKey, "1");
-      }
-
-      return saved;
-    }
-
-    window.localStorage.setItem(storageKey, JSON.stringify(starterRecipes));
+    window.localStorage.setItem(storageKey, JSON.stringify(merged));
     window.localStorage.setItem(seedKey, "1");
-    return starterRecipes;
+    return merged;
   } catch {
     window.localStorage.setItem(storageKey, JSON.stringify(starterRecipes));
     window.localStorage.setItem(seedKey, "1");
@@ -83,119 +159,6 @@ function formatMacro(value: number) {
 }
 
 const allergenOptions = [["milk", "Tej"], ["gluten", "Glutén"], ["egg", "Tojás"], ["nuts", "Diófélék"]] as const;
-
-export const starterRecipes: Recipe[] = [
-  {
-    id: "starter-chicken-rice-bowl",
-    name: "Citromos csirkés rizstál",
-    servings: 2,
-    kcal: 1040,
-    protein: 86,
-    carbs: 112,
-    fat: 26,
-    dietStyle: "omnivore",
-    allergens: [],
-    ingredients: [
-      { id: "starter-chicken-rice-1", name: "Csirkemell", amount: "300 g" },
-      { id: "starter-chicken-rice-2", name: "Főtt rizs", amount: "300 g" },
-      { id: "starter-chicken-rice-3", name: "Cukkini", amount: "200 g" },
-      { id: "starter-chicken-rice-4", name: "Paprika", amount: "1 db" },
-      { id: "starter-chicken-rice-5", name: "Olívaolaj", amount: "1 evőkanál" },
-      { id: "starter-chicken-rice-6", name: "Citrom", amount: "1/2 db" },
-    ],
-  },
-  {
-    id: "starter-turkey-potato",
-    name: "Pulykás sültburgonya-tál",
-    servings: 2,
-    kcal: 960,
-    protein: 78,
-    carbs: 104,
-    fat: 24,
-    dietStyle: "omnivore",
-    allergens: [],
-    ingredients: [
-      { id: "starter-turkey-potato-1", name: "Pulykamell", amount: "300 g" },
-      { id: "starter-turkey-potato-2", name: "Burgonya", amount: "500 g" },
-      { id: "starter-turkey-potato-3", name: "Paradicsom", amount: "200 g" },
-      { id: "starter-turkey-potato-4", name: "Uborka", amount: "1 db" },
-      { id: "starter-turkey-potato-5", name: "Olívaolaj", amount: "1 evőkanál" },
-    ],
-  },
-  {
-    id: "starter-lentil-quinoa",
-    name: "Lencsés quinoa tál",
-    servings: 2,
-    kcal: 900,
-    protein: 34,
-    carbs: 132,
-    fat: 24,
-    dietStyle: "vegan",
-    allergens: [],
-    ingredients: [
-      { id: "starter-lentil-quinoa-1", name: "Főtt lencse", amount: "300 g" },
-      { id: "starter-lentil-quinoa-2", name: "Főtt quinoa", amount: "240 g" },
-      { id: "starter-lentil-quinoa-3", name: "Paradicsom", amount: "200 g" },
-      { id: "starter-lentil-quinoa-4", name: "Uborka", amount: "1 db" },
-      { id: "starter-lentil-quinoa-5", name: "Olívaolaj", amount: "1 evőkanál" },
-      { id: "starter-lentil-quinoa-6", name: "Citrom", amount: "1/2 db" },
-    ],
-  },
-  {
-    id: "starter-chickpea-rice",
-    name: "Fűszeres csicseriborsós rizstál",
-    servings: 2,
-    kcal: 940,
-    protein: 30,
-    carbs: 146,
-    fat: 26,
-    dietStyle: "vegan",
-    allergens: [],
-    ingredients: [
-      { id: "starter-chickpea-rice-1", name: "Főtt csicseriborsó", amount: "300 g" },
-      { id: "starter-chickpea-rice-2", name: "Főtt rizs", amount: "260 g" },
-      { id: "starter-chickpea-rice-3", name: "Cukkini", amount: "200 g" },
-      { id: "starter-chickpea-rice-4", name: "Paprika", amount: "1 db" },
-      { id: "starter-chickpea-rice-5", name: "Olívaolaj", amount: "1 evőkanál" },
-    ],
-  },
-  {
-    id: "starter-tofu-rice",
-    name: "Zöldséges tofu-rizstál",
-    servings: 2,
-    kcal: 920,
-    protein: 42,
-    carbs: 112,
-    fat: 32,
-    dietStyle: "vegan",
-    allergens: [],
-    ingredients: [
-      { id: "starter-tofu-rice-1", name: "Natúr tofu", amount: "300 g" },
-      { id: "starter-tofu-rice-2", name: "Főtt rizs", amount: "280 g" },
-      { id: "starter-tofu-rice-3", name: "Brokkoli", amount: "250 g" },
-      { id: "starter-tofu-rice-4", name: "Sárgarépa", amount: "150 g" },
-      { id: "starter-tofu-rice-5", name: "Olívaolaj", amount: "1 evőkanál" },
-    ],
-  },
-  {
-    id: "starter-egg-potato",
-    name: "Tojásos burgonyatál friss zöldségekkel",
-    servings: 2,
-    kcal: 860,
-    protein: 38,
-    carbs: 86,
-    fat: 40,
-    dietStyle: "vegetarian",
-    allergens: ["egg"],
-    ingredients: [
-      { id: "starter-egg-potato-1", name: "Tojás", amount: "6 db" },
-      { id: "starter-egg-potato-2", name: "Burgonya", amount: "400 g" },
-      { id: "starter-egg-potato-3", name: "Paradicsom", amount: "200 g" },
-      { id: "starter-egg-potato-4", name: "Uborka", amount: "1 db" },
-      { id: "starter-egg-potato-5", name: "Olívaolaj", amount: "1 teáskanál" },
-    ],
-  },
-];
 
 
 export default function RecipesView({ storageKey, onAddMeal, onAddShopping, preferences }: Props) {
