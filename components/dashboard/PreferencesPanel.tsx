@@ -29,6 +29,9 @@ const allergenOptions = [
   ["gluten", "Glutén"],
   ["egg", "Tojás"],
   ["nuts", "Diófélék"],
+  ["fish", "Hal"],
+  ["soy", "Szója"],
+  ["sesame", "Szezám"],
 ] as const;
 
 const workoutMinuteOptions = [10, 15, 20, 30, 40] as const;
@@ -117,7 +120,7 @@ export default function PreferencesPanel({
         JSON.stringify(preferences),
       );
       onChange(preferences);
-      setMessage("A személyes szűrők elmentve ezen az eszközön.");
+      setMessage("✓ Profil elmentve ezen az eszközön.");
       setBusy(false);
       return;
     }
@@ -132,13 +135,13 @@ export default function PreferencesPanel({
 
     if (error) {
       console.error("Preferences save error:", error);
-      setMessage("A beállítások mentése nem sikerült. Próbáld újra.");
+      setMessage("A profil mentése nem sikerült. Próbáld újra.");
       setBusy(false);
       return;
     }
 
     onChange(preferences);
-    setMessage("A személyes szűrők elmentve.");
+    setMessage("✓ Profil elmentve");
     setBusy(false);
   }
 
@@ -252,19 +255,51 @@ export default function PreferencesPanel({
           </small>
         </label>
 
-        {message && (
-          <div className="preference-message" role="status">
-            {message}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          className="preferences-save"
-          disabled={busy}
+        <div
+          style={{
+            marginTop: "22px",
+            paddingTop: "18px",
+            borderTop: "1px solid rgba(83, 51, 107, 0.12)",
+          }}
         >
-          {busy ? "Mentés…" : "Szűrők mentése"}
-        </button>
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              display: "flex",
+              width: "100%",
+              minHeight: "clamp(46px, 4vw, 52px)",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "0",
+              borderRadius: "16px",
+              background: busy ? "#b9a7c8" : "#5b3475",
+              color: "#ffffff",
+              fontSize: "clamp(14px, 2.8vw, 15px)",
+              fontWeight: 800,
+              letterSpacing: "0.01em",
+              cursor: busy ? "wait" : "pointer",
+              boxShadow: "0 10px 24px rgba(91, 52, 117, 0.16)",
+            }}
+          >
+            {busy ? "Mentés…" : "Profil mentése"}
+          </button>
+
+          {message && (
+            <div
+              className="preference-message"
+              role="status"
+              style={{
+                display: "block",
+                marginTop: "12px",
+                textAlign: "center",
+                fontWeight: 700,
+              }}
+            >
+              {message}
+            </div>
+          )}
+        </div>
       </form>
     </article>
   );

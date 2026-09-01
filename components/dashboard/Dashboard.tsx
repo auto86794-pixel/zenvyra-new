@@ -29,7 +29,8 @@ type View =
   | "meals"
   | "movement"
   | "wellbeing"
-  | "progress";
+  | "progress"
+  | "settings";
 
 type Props = {
   onSignOut: () => void | Promise<void>;
@@ -80,6 +81,7 @@ const SHOPPING_STORAGE_PREFIX = "zenvyra_shopping_v1";
 const RECIPE_STORAGE_PREFIX = "zenvyra_recipes_v1";
 const RECIPE_HISTORY_STORAGE_PREFIX = "zenvyra_recipe_history_v1";
 const RECIPE_REPEAT_BLOCK_DAYS = 14;
+const ASSISTANT_PLAN_STORAGE_PREFIX = "zenvyra_assistant_plan_v1";
 
 
 
@@ -149,6 +151,49 @@ function loadRecipeRecommendationHistory(
   } catch {
     return [];
   }
+}
+
+type AssistantMovementTime = "Délelőtt" | "Délután" | "Este";
+type AssistantStartChoice = "Nyugodt reggeli" | "Rövid mozgás" | "Lassabb indulás";
+
+type StoredAssistantPlan = {
+  movementDate?: string;
+  movementTime?: AssistantMovementTime | null;
+  tomorrowDate?: string;
+  tomorrowStart?: AssistantStartChoice | null;
+};
+
+function nextLocalDateKey(date = new Date()) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  return localDateKey(next);
+}
+
+function loadAssistantPlan(storageKey: string): StoredAssistantPlan {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(storageKey) ?? "{}",
+    ) as StoredAssistantPlan;
+
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAssistantPlan(
+  storageKey: string,
+  patch: Partial<StoredAssistantPlan>,
+) {
+  if (typeof window === "undefined") return;
+
+  const current = loadAssistantPlan(storageKey);
+  window.localStorage.setItem(
+    storageKey,
+    JSON.stringify({ ...current, ...patch }),
+  );
 }
 
 type ShoppingItem = {
@@ -378,6 +423,7 @@ const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "movement", label: "Mozgás", icon: "⌁" },
   { id: "wellbeing", label: "Közérzet", icon: "◇" },
   { id: "progress", label: "Haladás", icon: "▥" },
+  { id: "settings", label: "Profil", icon: "♙" },
 ];
 
 type WeeklyPlanDay = {
@@ -530,6 +576,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const shoppingStorageKey = `${SHOPPING_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const recipeStorageKey = `${RECIPE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const recipeHistoryStorageKey = `${RECIPE_HISTORY_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const assistantPlanStorageKey = `${ASSISTANT_PLAN_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
 
   const initialChallenges = useMemo(
     () => loadChallengeProgress(challengeStorageKey),
@@ -574,6 +621,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       : loadGuestPreferences(),
   );
   const [savedRecipes, setSavedRecipes] = useState<Recipe[]>([]);
+  const [weeklyRecipeSwapOffsets, setWeeklyRecipeSwapOffsets] = useState<number[]>(
+    () => Array(7).fill(0),
+  );
   const [recipeRecommendationHistory, setRecipeRecommendationHistory] = useState<
     RecipeRecommendationHistoryEntry[]
   >(() => loadRecipeRecommendationHistory(
@@ -589,6 +639,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [quickModalOpen, setQuickModalOpen] = useState(false);
   const [cloudReady, setCloudReady] = useState(guestMode || !session);
   const [cloudMessage, setCloudMessage] = useState("");
+  const [shoppingNotice, setShoppingNotice] = useState("");
+  const [morningMovementTime, setMorningMovementTime] =
+    useState<AssistantMovementTime | null>(null);
+  const [morningStartPreference, setMorningStartPreference] =
+    useState<AssistantStartChoice | null>(null);
 
   const [mealType, setMealType] = useState("Reggeli");
   const [foodName, setFoodName] = useState("");
@@ -604,6 +659,77 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
 
   const dailyGoal = profile?.daily_calorie_goal ?? 2000;
+  const [now, setNow] = useState(() => new Date());
+  const [tomorrowStart, setTomorrowStart] =
+    useState<AssistantStartChoice | null>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const currentHour = now.getHours();
+  const currentDateKey = localDateKey(now);
+
+  useEffect(() => {
+    const saved = loadAssistantPlan(assistantPlanStorageKey);
+    const tomorrowKey = nextLocalDateKey(now);
+
+    setMorningMovementTime(
+      saved.movementDate === currentDateKey
+        ? saved.movementTime ?? null
+        : null,
+    );
+
+    setMorningStartPreference(
+      saved.tomorrowDate === currentDateKey
+        ? saved.tomorrowStart ?? null
+        : null,
+    );
+
+    setTomorrowStart(
+      saved.tomorrowDate === tomorrowKey
+        ? saved.tomorrowStart ?? null
+        : null,
+    );
+  }, [assistantPlanStorageKey, currentDateKey]);
+
+  function chooseMorningMovementTime(time: AssistantMovementTime) {
+    setMorningMovementTime(time);
+    saveAssistantPlan(assistantPlanStorageKey, {
+      movementDate: currentDateKey,
+      movementTime: time,
+    });
+  }
+
+  function chooseTomorrowStart(choice: AssistantStartChoice) {
+    setTomorrowStart(choice);
+    saveAssistantPlan(assistantPlanStorageKey, {
+      tomorrowDate: nextLocalDateKey(now),
+      tomorrowStart: choice,
+    });
+  }
+
+  const todayGreeting =
+    currentHour < 11
+      ? "Jó reggelt. Hogy aludtál?"
+      : currentHour < 14
+        ? "Szia. Közeledik az ebéd ideje."
+        : currentHour < 17
+          ? "Szia. Hogy alakul a délutánod?"
+          : currentHour < 20
+            ? "Jó estét. Nézzük meg a vacsorát?"
+            : "Jó estét. Hogy telt a napod?";
+  const todayGreetingText =
+    currentHour < 11
+      ? "Hogy érzed magad ma? Nézzük meg, mi segíthet abban, hogy jól induljon a napod."
+      : currentHour < 14
+        ? "Nem kell az egész napot megtervezned. Most elég csak az ebéd következő jó döntését kiválasztani."
+        : currentHour < 17
+          ? "Nézzük meg, mi fér bele innen kényelmesen: a mozgásod vagy egyszerűen a saját ritmusod folytatása."
+          : currentHour < 20
+            ? "Mutatok néhány hozzád illő vacsorát. Te választasz, nem a rendszer dönt helyetted."
+            : "Most már nem kell mindent megoldani. Nézzük meg, mi sikerült ma, és mivel szeretnéd könnyebben indítani a holnapot.";
   const weeklyPlan = useMemo(
     () => createWeeklyPlan(profile?.goal ?? null),
     [profile?.goal]
@@ -630,25 +756,6 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     );
   }, [preferences.fitness_level, preferences.workout_minutes]);
   const todayWorkout = (recommendedWorkouts.length > 0 ? recommendedWorkouts : workoutLibrary)[todayPlanIndex % Math.max(1, recommendedWorkouts.length || workoutLibrary.length)];
-  const todayChallenge = challenges[todayPlanIndex % challenges.length];
-  const todayChallengeDone = challengeProgress[todayChallenge.id][todayPlanIndex];
-  const todayPathCompleted =
-    Number(meals.some((meal) => meal.consumed)) + Number(movementDone) + Number(todayChallengeDone);
-  const generatedShoppingItems = useMemo(
-    () => createShoppingList(profile?.goal ?? null),
-    [profile?.goal],
-  );
-  const shoppingItems = useMemo(
-    () => [...generatedShoppingItems, ...customShoppingItems],
-    [generatedShoppingItems, customShoppingItems],
-  );
-  const shoppingGroups = useMemo(() => {
-    const groups = new Map<string, ShoppingItem[]>();
-    for (const item of shoppingItems) {
-      groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
-    }
-    return Array.from(groups.entries());
-  }, [shoppingItems]);
   const visibleFoodPresets = useMemo(() => {
     const query = foodName.trim().toLocaleLowerCase("hu");
     if (!query) return commonFoods.slice(0, 6);
@@ -752,6 +859,18 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       setCustomShoppingItems((current) => [...current, ...additions]);
     }
     return additions.length;
+  }
+
+  function handleRecipeShopping(ingredients: RecipeIngredient[]) {
+    const added = addRecipeIngredientsToShopping(ingredients);
+
+    setShoppingNotice(
+      added > 0
+        ? `✓ ${added} új hozzávaló hozzáadva a bevásárlólistához.`
+        : "✓ A recept hozzávalói már szerepelnek a bevásárlólistán.",
+    );
+
+    return added;
   }
 
   useEffect(() => {
@@ -1012,6 +1131,346 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     totals.protein,
   ]);
 
+  const fullDayMenu = useMemo(() => {
+    if (compatibleSavedRecipes.length === 0) return [];
+
+    const slots = [
+      { type: "Reggeli", mealType: "breakfast", share: 0.25 },
+      { type: "Ebéd", mealType: "lunch", share: 0.35 },
+      { type: "Vacsora", mealType: "dinner", share: 0.3 },
+      { type: "Kisétkezés", mealType: "snack", share: 0.1 },
+    ] as const;
+
+    const usedRecipeIds = new Set<string>();
+    const usedProteinGroups = new Set<string>();
+    const usedFlavorKeys = new Set<string>();
+
+    function mealTypeMatches(
+      recipe: Recipe,
+      mealType: "breakfast" | "lunch" | "dinner" | "snack",
+    ) {
+      // Saját, régebbi recepteknél nincs mealTypes metaadat.
+      // Ezeket csak ebéd/vacsora tartalékként engedjük, reggelire/snackre nem.
+      if (!recipe.mealTypes || recipe.mealTypes.length === 0) {
+        return mealType === "lunch" || mealType === "dinner";
+      }
+      return recipe.mealTypes.includes(mealType);
+    }
+
+    function flavorKey(recipe: Recipe) {
+      const generatedMatch = recipe.id.match(
+        /^zenvyra-[^-]+-[^-]+-(.+)$/,
+      );
+      return generatedMatch?.[1] ?? recipe.name.toLocaleLowerCase("hu");
+    }
+
+    const initialMenu = slots.map((slot) => {
+      const target = {
+        kcal: dailyGoal * slot.share,
+        protein: (profile?.protein_target_g ?? 0) * slot.share,
+        carbs: (profile?.carbs_target_g ?? 0) * slot.share,
+        fat: (profile?.fat_target_g ?? 0) * slot.share,
+      };
+
+      const typedCandidates = compatibleSavedRecipes.filter(
+        (recipe) =>
+          mealTypeMatches(recipe, slot.mealType) &&
+          !usedRecipeIds.has(recipe.id),
+      );
+
+      const scored = typedCandidates
+        .map((recipe) => {
+          const servings = Math.max(1, recipe.servings);
+          const perServing = {
+            kcal: recipe.kcal / servings,
+            protein: recipe.protein / servings,
+            carbs: recipe.carbs / servings,
+            fat: recipe.fat / servings,
+          };
+
+          const pairs = [
+            [perServing.kcal, target.kcal, 1.6],
+            [perServing.protein, target.protein, 1.35],
+            [perServing.carbs, target.carbs, 0.9],
+            [perServing.fat, target.fat, 0.9],
+          ].filter(([, targetValue]) => targetValue > 0);
+
+          const normalized = pairs.map(
+            ([value, targetValue, weight]) => (value / targetValue) * weight,
+          );
+          const numerator = normalized.reduce(
+            (sum, value) => sum + value,
+            0,
+          );
+          const denominator = normalized.reduce(
+            (sum, value) => sum + value * value,
+            0,
+          );
+
+          // Negyed adaggal finomabban közelítünk a napi célhoz.
+          const rawPortions = denominator > 0 ? numerator / denominator : 1;
+          const portions = Math.max(
+            0.5,
+            Math.min(3, Math.round(rawPortions * 4) / 4),
+          );
+
+          let score = pairs.reduce((sum, [value, targetValue, weight]) => {
+            const difference =
+              (value * portions - targetValue) / targetValue;
+            return sum + difference * difference * weight;
+          }, 0);
+
+          const proteinGroup = recipeProteinGroup(recipe);
+          const recipeFlavorKey = flavorKey(recipe);
+
+          // Ugyanaz a fő fehérjeforrás lehetőleg ne ismétlődjön a nap során.
+          // Nem tiltjuk teljesen, mert erős allergén/étrendi szűrésnél
+          // lehet, hogy nincs más megfelelő alternatíva.
+          if (usedProteinGroups.has(proteinGroup)) {
+            score += 2.25;
+          }
+          if (usedFlavorKeys.has(recipeFlavorKey)) {
+            score += 1.0;
+          }
+
+          return {
+            recipe,
+            portions,
+            kcal: Math.round(perServing.kcal * portions),
+            protein: Math.round(perServing.protein * portions),
+            carbs: Math.round(perServing.carbs * portions),
+            fat: Math.round(perServing.fat * portions),
+            score,
+            proteinGroup,
+            flavorKey: recipeFlavorKey,
+          };
+        })
+        .sort((a, b) => a.score - b.score);
+
+      const selected = scored[0] ?? null;
+
+      if (selected) {
+        usedRecipeIds.add(selected.recipe.id);
+        usedProteinGroups.add(selected.proteinGroup);
+        usedFlavorKeys.add(selected.flavorKey);
+      }
+
+      return {
+        type: slot.type,
+        optional: slot.type === "Kisétkezés",
+        recommendation: selected,
+      };
+    });
+
+    // Második lépcső: a már kiválasztott, változatos receptek adagjait
+    // a TELJES NAP célértékeihez igazítjuk. Így nem négy külön étkezést,
+    // hanem egy összefüggő napi tervet optimalizálunk.
+    const selected = initialMenu
+      .map((item) => item.recommendation)
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    if (selected.length !== initialMenu.length) {
+      return initialMenu;
+    }
+
+    // Életszerű adaghatárok étkezéstípusonként.
+    // A motor továbbra is 0,25 adagos lépésekben optimalizál,
+    // de nem kompenzálhat például egy 2 adagos, 1000+ kcal-os ebéddel.
+    const portionOptionsByMeal = [
+      [0.75, 1, 1.25, 1.5], // Reggeli
+      [0.75, 1, 1.25, 1.5], // Ebéd
+      [0.75, 1, 1.25, 1.5], // Vacsora
+      [0.5, 0.75, 1], // Kisétkezés
+    ];
+
+    let bestPortions = selected.map((item) => item.portions);
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    function dailyScore(
+      kcalValue: number,
+      proteinValue: number,
+      carbsValue: number,
+      fatValue: number,
+      portions: number[],
+    ) {
+      const kcalDiff = (kcalValue - dailyGoal) / Math.max(1, dailyGoal);
+      let score = kcalDiff * kcalDiff * 4;
+
+      const proteinTarget = profile?.protein_target_g ?? 0;
+      const carbsTarget = profile?.carbs_target_g ?? 0;
+      const fatTarget = profile?.fat_target_g ?? 0;
+
+      if (proteinTarget > 0) {
+        const diff = (proteinValue - proteinTarget) / proteinTarget;
+        score += diff * diff * 2;
+      }
+      if (carbsTarget > 0) {
+        const diff = (carbsValue - carbsTarget) / carbsTarget;
+        score += diff * diff;
+      }
+      if (fatTarget > 0) {
+        const diff = (fatValue - fatTarget) / fatTarget;
+        score += diff * diff;
+      }
+
+      // Kis büntetés a nagyon szélsőséges adagokra, hogy a terv
+      // hétköznapi és könnyen követhető maradjon.
+      score += portions.reduce((sum, portion) => {
+        if (portion < 0.5 || portion > 2.5) return sum + 0.3;
+        return sum;
+      }, 0);
+
+      return score;
+    }
+
+    for (const p0 of portionOptionsByMeal[0]) {
+      for (const p1 of portionOptionsByMeal[1]) {
+        for (const p2 of portionOptionsByMeal[2]) {
+          for (const p3 of portionOptionsByMeal[3]) {
+            const portions = [p0, p1, p2, p3];
+
+            const totalsForPortions = selected.reduce(
+              (sum, item, index) => {
+                const servings = Math.max(1, item.recipe.servings);
+                const portion = portions[index];
+
+                return {
+                  kcal:
+                    sum.kcal +
+                    (item.recipe.kcal / servings) * portion,
+                  protein:
+                    sum.protein +
+                    (item.recipe.protein / servings) * portion,
+                  carbs:
+                    sum.carbs +
+                    (item.recipe.carbs / servings) * portion,
+                  fat:
+                    sum.fat +
+                    (item.recipe.fat / servings) * portion,
+                };
+              },
+              { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+            );
+
+            const score = dailyScore(
+              totalsForPortions.kcal,
+              totalsForPortions.protein,
+              totalsForPortions.carbs,
+              totalsForPortions.fat,
+              portions,
+            );
+
+            if (score < bestScore) {
+              bestScore = score;
+              bestPortions = portions;
+            }
+          }
+        }
+      }
+    }
+
+    return initialMenu.map((item, index) => {
+      if (!item.recommendation) return item;
+
+      const portions = bestPortions[index];
+      const recipe = item.recommendation.recipe;
+      const servings = Math.max(1, recipe.servings);
+
+      return {
+        ...item,
+        recommendation: {
+          ...item.recommendation,
+          portions,
+          kcal: Math.round((recipe.kcal / servings) * portions),
+          protein: Math.round((recipe.protein / servings) * portions),
+          carbs: Math.round((recipe.carbs / servings) * portions),
+          fat: Math.round((recipe.fat / servings) * portions),
+        },
+      };
+    });
+  }, [
+    compatibleSavedRecipes,
+    dailyGoal,
+    profile?.carbs_target_g,
+    profile?.fat_target_g,
+    profile?.protein_target_g,
+  ]);
+
+
+  const morningBreakfastOptions = useMemo(() => {
+    const breakfast = compatibleSavedRecipes.filter((recipe) =>
+      recipe.mealTypes?.includes("breakfast"),
+    );
+
+    const targetKcal = dailyGoal * 0.25;
+
+    return breakfast
+      .map((recipe) => {
+        const servings = Math.max(1, recipe.servings);
+        const perServingKcal = recipe.kcal / servings;
+        const portions = Math.max(
+          0.5,
+          Math.min(1.5, Math.round((targetKcal / Math.max(1, perServingKcal)) * 4) / 4),
+        );
+
+        return {
+          recipe,
+          portions,
+          kcal: Math.round(perServingKcal * portions),
+          protein: Math.round((recipe.protein / servings) * portions),
+        };
+      })
+      .sort(
+        (a, b) =>
+          Math.abs(a.kcal - targetKcal) - Math.abs(b.kcal - targetKcal),
+      )
+      .slice(0, 4);
+  }, [compatibleSavedRecipes, dailyGoal]);
+
+  const lunchOptions = useMemo(() => {
+    const targetKcal = dailyGoal * 0.35;
+    return compatibleSavedRecipes
+      .filter((recipe) => recipe.mealTypes?.includes("lunch"))
+      .map((recipe) => {
+        const servings = Math.max(1, recipe.servings);
+        const perServingKcal = recipe.kcal / servings;
+        const portions = Math.max(
+          0.75,
+          Math.min(1.5, Math.round((targetKcal / Math.max(1, perServingKcal)) * 4) / 4),
+        );
+        return {
+          recipe,
+          portions,
+          kcal: Math.round(perServingKcal * portions),
+          protein: Math.round((recipe.protein / servings) * portions),
+        };
+      })
+      .sort((a, b) => Math.abs(a.kcal - targetKcal) - Math.abs(b.kcal - targetKcal))
+      .slice(0, 3);
+  }, [compatibleSavedRecipes, dailyGoal]);
+
+  const dinnerOptions = useMemo(() => {
+    const targetKcal = dailyGoal * 0.3;
+    return compatibleSavedRecipes
+      .filter((recipe) => recipe.mealTypes?.includes("dinner"))
+      .map((recipe) => {
+        const servings = Math.max(1, recipe.servings);
+        const perServingKcal = recipe.kcal / servings;
+        const portions = Math.max(
+          0.75,
+          Math.min(1.5, Math.round((targetKcal / Math.max(1, perServingKcal)) * 4) / 4),
+        );
+        return {
+          recipe,
+          portions,
+          kcal: Math.round(perServingKcal * portions),
+          protein: Math.round((recipe.protein / servings) * portions),
+        };
+      })
+      .sort((a, b) => Math.abs(a.kcal - targetKcal) - Math.abs(b.kcal - targetKcal))
+      .slice(0, 3);
+  }, [compatibleSavedRecipes, dailyGoal]);
+
   const personalizedWeeklyRecipes = useMemo(() => {
     if (compatibleSavedRecipes.length === 0) return [];
 
@@ -1098,7 +1557,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     const proteinCounts = new Map<string, number>();
     let previousProtein: string | null = null;
 
-    return weeklyPlan.map((day) => {
+    return weeklyPlan.map((day, dayIndex) => {
       const availableCandidates = orderedCandidates.filter((item) =>
         unusedRecipeIds.has(item.recipe.id),
       );
@@ -1106,30 +1565,38 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       // Heti fehérjeforrás-rotáció:
       // 1) ne legyen ugyanaz a fő fehérje két egymást követő napon,
       // 2) ugyanaz a fehérjeforrás legfeljebb kétszer szerepeljen a héten,
-      // 3) ha a szűrések miatt ez nem tartható, fokozatosan lazítunk a szabályon.
-      let selected = availableCandidates.find((item) => {
+      // 3) a "Cseréld le" ugyanebből a megfelelő jelöltkörből választ másik receptet,
+      // 4) ha a szűrések miatt ez nem tartható, fokozatosan lazítunk a szabályon.
+      const strongestCandidates = availableCandidates.filter((item) => {
         const proteinGroup = recipeProteinGroup(item.recipe);
         const count = proteinCounts.get(proteinGroup) ?? 0;
         return proteinGroup !== previousProtein && count < WEEKLY_PROTEIN_MAX;
       });
 
-      if (!selected) {
-        selected = availableCandidates.find((item) => {
-          const proteinGroup = recipeProteinGroup(item.recipe);
-          return proteinGroup !== previousProtein;
-        });
-      }
+      const differentProteinCandidates = availableCandidates.filter((item) => {
+        const proteinGroup = recipeProteinGroup(item.recipe);
+        return proteinGroup !== previousProtein;
+      });
 
-      if (!selected) {
-        selected = availableCandidates.find((item) => {
-          const proteinGroup = recipeProteinGroup(item.recipe);
-          return (proteinCounts.get(proteinGroup) ?? 0) < WEEKLY_PROTEIN_MAX;
-        });
-      }
+      const withinWeeklyMaxCandidates = availableCandidates.filter((item) => {
+        const proteinGroup = recipeProteinGroup(item.recipe);
+        return (proteinCounts.get(proteinGroup) ?? 0) < WEEKLY_PROTEIN_MAX;
+      });
 
-      if (!selected) {
-        selected = availableCandidates[0];
-      }
+      const candidatePool =
+        strongestCandidates.length > 0
+          ? strongestCandidates
+          : differentProteinCandidates.length > 0
+            ? differentProteinCandidates
+            : withinWeeklyMaxCandidates.length > 0
+              ? withinWeeklyMaxCandidates
+              : availableCandidates;
+
+      const swapOffset = weeklyRecipeSwapOffsets[dayIndex] ?? 0;
+      const selected =
+        candidatePool.length > 0
+          ? candidatePool[swapOffset % candidatePool.length]
+          : undefined;
 
       if (!selected) {
         return { day: day.day, recipe: null };
@@ -1156,7 +1623,213 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     profile?.protein_target_g,
     recipeRecommendationHistory,
     weeklyPlan,
+    weeklyRecipeSwapOffsets,
   ]);
+
+  const generatedShoppingItems = useMemo(() => {
+    type Aggregate = {
+      name: string;
+      category: string;
+      numericAmount: number;
+      unit: string;
+      fallbackAmounts: string[];
+    };
+
+    function splitShoppingIngredient(name: string): string[] {
+      const cleaned = name.trim();
+
+      // Csak a receptgenerátorban használt, egyértelmű összetett alapanyagokat
+      // bontjuk. Nem vágunk szét vakon minden "és" kapcsolatot.
+      const exactSplits: Record<string, string[]> = {
+        "gyömbér, lime és gluténmentes tamari": [
+          "Gyömbér",
+          "Lime",
+          "Gluténmentes tamari",
+        ],
+        "mandula és friss zöldfűszerek": [
+          "Mandula",
+          "Friss zöldfűszerek",
+        ],
+        "paradicsom, paprika és oregánó": [
+          "Paradicsom",
+          "Paprika",
+          "Oregánó",
+        ],
+      };
+
+      return exactSplits[cleaned.toLocaleLowerCase("hu")] ?? [cleaned];
+    }
+
+    function shoppingFriendlyAmount(value: number, unit: string) {
+      if (!Number.isFinite(value) || value <= 0) return "";
+
+      const normalizedUnit = unit.trim().toLocaleLowerCase("hu");
+
+      if (normalizedUnit === "g") {
+        const rounded =
+          value < 100
+            ? Math.ceil(value / 10) * 10
+            : Math.ceil(value / 50) * 50;
+        return `${rounded} g`;
+      }
+
+      if (normalizedUnit === "kg") {
+        const rounded = Math.ceil(value * 10) / 10;
+        return `${nutritionValue(rounded)} kg`;
+      }
+
+      if (normalizedUnit === "ml") {
+        const rounded =
+          value < 250
+            ? Math.ceil(value / 25) * 25
+            : Math.ceil(value / 50) * 50;
+        return `${rounded} ml`;
+      }
+
+      if (normalizedUnit === "l") {
+        const rounded = Math.ceil(value * 10) / 10;
+        return `${nutritionValue(rounded)} l`;
+      }
+
+      if (normalizedUnit === "db") {
+        return `${Math.ceil(value)} db`;
+      }
+
+      // Kanalas és egyéb konyhai mennyiségeknél fél egységre kerekítünk.
+      const rounded = Math.ceil(value * 2) / 2;
+      return `${nutritionValue(rounded)} ${unit}`.trim();
+    }
+
+    function normalizeIngredientName(name: string) {
+      return name.trim().toLocaleLowerCase("hu");
+    }
+
+    function ingredientCategory(name: string) {
+      const value = normalizeIngredientName(name);
+
+      if (/(csirk|pulyk|marha|lazac|tonhal|hal|tojás|tofu|tempeh|csicseribors|lencs|bab|cottage|túró)/.test(value)) {
+        return "Fehérjeforrások";
+      }
+      if (/(joghurt|tej|kefir|sajt|vaj|tejszín)/.test(value)) {
+        return "Hűtő";
+      }
+      if (/(alma|banán|bogyós|avokád|paradics|paprika|uborka|saláta|zöldség|hagyma|citrom|lime|burgonya|édesburgonya)/.test(value)) {
+        return "Zöldség és gyümölcs";
+      }
+      return "Kamra";
+    }
+
+    function parseAmount(amount: string) {
+      const normalized = amount
+        .trim()
+        .toLocaleLowerCase("hu")
+        .replace(",", ".")
+        .replace("½", "0.5");
+
+      const fractionMatch = normalized.match(/^(\d+)\s*\/\s*(\d+)\s*(.*)$/);
+      if (fractionMatch) {
+        const denominator = Number(fractionMatch[2]);
+        if (denominator > 0) {
+          return {
+            value: Number(fractionMatch[1]) / denominator,
+            unit: fractionMatch[3].trim() || "db",
+          };
+        }
+      }
+
+      const match = normalized.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+      if (!match) return null;
+
+      return {
+        value: Number(match[1]),
+        unit: match[2].trim() || "db",
+      };
+    }
+
+    const aggregates = new Map<string, Aggregate>();
+
+    for (const day of personalizedWeeklyRecipes) {
+      if (!day.recipe) continue;
+
+      const recipeServings = Math.max(1, day.recipe.servings);
+      const scale = (day.portions ?? 1) / recipeServings;
+
+      for (const ingredient of day.recipe.ingredients) {
+        const shoppingNames = splitShoppingIngredient(ingredient.name);
+        const parsed = parseAmount(ingredient.amount);
+
+        for (const shoppingName of shoppingNames) {
+          const key = normalizeIngredientName(shoppingName);
+          const existing = aggregates.get(key);
+
+          if (!existing) {
+            aggregates.set(key, {
+              name: shoppingName,
+              category: ingredientCategory(shoppingName),
+              numericAmount: parsed ? parsed.value * scale : 0,
+              unit: parsed?.unit ?? "",
+              fallbackAmounts: parsed ? [] : [ingredient.amount],
+            });
+            continue;
+          }
+
+          if (
+            parsed &&
+            existing.unit === parsed.unit &&
+            existing.fallbackAmounts.length === 0
+          ) {
+            existing.numericAmount += parsed.value * scale;
+          } else if (!parsed) {
+            existing.fallbackAmounts.push(ingredient.amount);
+          } else {
+            // Eltérő mértékegységeket nem vonunk össze hamis pontossággal.
+            existing.fallbackAmounts.push(
+              shoppingFriendlyAmount(parsed.value * scale, parsed.unit),
+            );
+          }
+        }
+      }
+    }
+
+    return Array.from(aggregates.entries()).map(([key, item], index): ShoppingItem => {
+      let amount = "";
+
+      if (item.fallbackAmounts.length > 0) {
+        const parts = [
+          item.numericAmount > 0
+            ? shoppingFriendlyAmount(item.numericAmount, item.unit)
+            : "",
+          ...Array.from(new Set(item.fallbackAmounts)),
+        ].filter(Boolean);
+        amount = parts.join(" + ");
+      } else if (item.numericAmount > 0) {
+        amount = shoppingFriendlyAmount(item.numericAmount, item.unit);
+      }
+
+      return {
+        id: `weekly-${index}-${key.replace(/[^a-z0-9áéíóöőúüű]+/gi, "-")}`,
+        category: item.category,
+        name: item.name,
+        amount,
+      };
+    });
+  }, [personalizedWeeklyRecipes]);
+
+  const shoppingItems = useMemo(
+    () => [...generatedShoppingItems, ...customShoppingItems],
+    [generatedShoppingItems, customShoppingItems],
+  );
+
+  const shoppingGroups = useMemo(() => {
+    const groups = new Map<string, ShoppingItem[]>();
+    for (const item of shoppingItems) {
+      groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
+    }
+    return Array.from(groups.entries());
+  }, [shoppingItems]);
+
+
+
 
   useEffect(() => {
     if (personalizedWeeklyRecipes.length === 0) return;
@@ -1208,16 +1881,64 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     });
   }, [personalizedWeeklyRecipes, recipeHistoryStorageKey]);
 
-  const nextStepTitle =
-    !meals.some((meal) => meal.consumed)
-      ? dailyRecipeRecommendation
-        ? `Következő: ${dailyRecipeRecommendation.recipe.name}`
-        : "Következő: rögzíts egy étkezést"
-      : !movementDone
-        ? `Következő: ${todayWorkout.title}`
-        : !todayChallengeDone
-          ? `Következő: ${todayChallenge.title}`
-          : "Mára minden lépésed kész.";
+  function swapWeeklyRecipe(dayIndex: number) {
+    setWeeklyRecipeSwapOffsets((current) =>
+      current.map((offset, index) =>
+        index === dayIndex ? offset + 1 : offset,
+      ),
+    );
+  }
+
+  const nextPlannedMeal = meals.find((meal) => !meal.consumed);
+  const consumedMealCount = meals.filter((meal) => meal.consumed).length;
+  const lunchMeal = meals.find((meal) => meal.type === "Ebéd");
+  const dinnerMeal = meals.find((meal) => meal.type === "Vacsora");
+  const isLunchPhase = currentHour >= 11 && currentHour < 14;
+  const isAfternoonPhase = currentHour >= 14 && currentHour < 17;
+  const isDinnerPhase = currentHour >= 17 && currentHour < 20;
+
+  const todayGuideText =
+    nextPlannedMeal
+      ? `${nextPlannedMeal.type} következik. Már el van tervezve, csak akkor jelöld elfogyasztottnak, amikor valóban megetted.`
+      : consumedMealCount === 0
+        ? "Kezdd a következő étkezéssel. Nem kell az egész napot egyszerre fejben tartanod."
+        : !movementDone
+          ? `${consumedMealCount} étkezést már rögzítettél. A következő jó lépés egy ${todayWorkout.minutes} perces, hozzád igazított mozgás.`
+          : `${consumedMealCount} étkezést már rögzítettél, és a mai mozgásod is kész. Folytasd a saját ritmusodban — a következetesség többet számít, mint a tökéletesség.`;
+
+  function openTodayNextStep() {
+    if (nextPlannedMeal) {
+      setView("meals");
+      return;
+    }
+
+    if (consumedMealCount === 0) {
+      if (dailyRecipeRecommendation) {
+        void addRecipeToMeals(
+          dailyRecipeRecommendation.recipe,
+          dailyRecipeRecommendation.portions,
+        );
+        return;
+      }
+      setView("recipes");
+      return;
+    }
+
+    if (!movementDone) {
+      setView("movement");
+    }
+  }
+
+  const todayNextButtonLabel =
+    nextPlannedMeal
+      ? "Mai étkezések →"
+      : consumedMealCount === 0
+        ? dailyRecipeRecommendation
+          ? "Ajánlott étkezés hozzáadása →"
+          : "Receptek megnyitása →"
+        : !movementDone
+          ? "Mozgás megnyitása →"
+          : null;
 
   const caloriesPercent = Math.min(
     100,
@@ -1434,10 +2155,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setMealModalOpen(false);
   }
 
-  async function addRecipeToMeals(recipe: Recipe, portions: number) {
+  async function addRecipeToMeals(
+    recipe: Recipe,
+    portions: number,
+    mealType = "Főétkezés",
+  ) {
     const ratio = portions / recipe.servings;
     const draft = {
-      type: "Főétkezés",
+      type: mealType,
       food: `${recipe.name} (${String(portions).replace(".", ",")} adag)`,
       kcal: Math.round(recipe.kcal * ratio),
       protein: Math.round(recipe.protein * ratio),
@@ -1620,12 +2345,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     ? "MOZGÁS"
                     : view === "wellbeing"
                       ? "KÖZÉRZET"
-                      : "HALADÁS"}
+                      : view === "settings"
+                        ? "SAJÁT PROFIL"
+                        : "HALADÁS"}
             </div>
 
             <h1>
               {view === "today"
-                ? "Jó, hogy itt vagy."
+                ? todayGreeting
                 : view === "weekly"
                   ? "A heted, könnyebben."
                 : view === "shopping"
@@ -1640,12 +2367,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     ? "Mozdulj jól."
                     : view === "wellbeing"
                       ? "Hogy vagy ma?"
-                      : "Lásd a fejlődésed."}
+                      : view === "settings"
+                        ? "A profilod."
+                        : "Lásd a fejlődésed."}
             </h1>
 
             <p>
               {view === "today"
-                ? "Ma is elég egy-két jó döntés."
+                ? todayGreetingText
                 : view === "weekly"
                   ? "Egy gyengéd iránytű, amit a saját napjaidhoz igazíthatsz."
                 : view === "shopping"
@@ -1660,7 +2389,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     ? "A rendszeresség többet számít, mint a tökéletesség."
                     : view === "wellbeing"
                       ? "Figyelj arra is, hogyan érzed magad."
-                      : "A kis változások együtt rajzolják ki az utat."}
+                      : view === "settings"
+                        ? "Étrend, allergének, alapanyagok és mozgási preferenciák egy helyen."
+                        : "A kis változások együtt rajzolják ki az utat."}
             </p>
           </div>
 
@@ -1683,6 +2414,363 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
         {view === "today" && (
           <>
+            {currentHour < 11 ? (
+              <section
+                className="dashboard-card"
+                aria-labelledby="morning-assistant-title"
+                style={{
+                  padding: "26px",
+                  marginBottom: 20,
+                  background:
+                    "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(247,238,249,0.96))",
+                }}
+              >
+                <span className="card-kicker">REGGELI RÁHANGOLÓDÁS</span>
+                <h2
+                  id="morning-assistant-title"
+                  style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}
+                >
+                  Hogy érzed magad ma?
+                </h2>
+                <p style={{ margin: "0 0 14px" }}>
+                  Jelöld egy érintéssel. Ebből indulunk, nem egy kötelező listából.
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={mood === value ? "mood-button active" : "mood-button"}
+                      onClick={() => void saveMood(value)}
+                      aria-label={`Közérzet ${value} az 5-ből`}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+
+                {morningStartPreference && (
+                  <div
+                    style={{
+                      marginTop: 20,
+                      padding: "14px 16px",
+                      borderRadius: 16,
+                      background: "rgba(246, 239, 251, 0.82)",
+                      border: "1px solid rgba(122, 75, 157, 0.12)",
+                    }}
+                  >
+                    <span className="card-kicker">TEGNAP ESTE EZT VÁLASZTOTTAD</span>
+                    <p style={{ margin: "6px 0 0", fontWeight: 700 }}>
+                      {morningStartPreference}. Innen indulhatunk ma, de bármikor változtathatsz rajta.
+                    </p>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 26, paddingTop: 22, borderTop: "1px solid rgba(95, 61, 130, 0.10)" }}>
+                  <span className="card-kicker">1 · REGGELI</span>
+                  <h3 style={{ margin: "7px 0 6px", fontSize: "1.25rem" }}>
+                    Mit ennél ma szívesen reggelire?
+                  </h3>
+                  <p style={{ marginTop: 0 }}>
+                    Mutatok néhány hozzád illő lehetőséget, de te választasz.
+                  </p>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: 12,
+                      marginTop: 14,
+                    }}
+                  >
+                    {morningBreakfastOptions.map((option) => (
+                      <article
+                        key={option.recipe.id}
+                        style={{
+                          padding: 16,
+                          border: "1px solid rgba(95, 61, 130, 0.10)",
+                          borderRadius: 18,
+                          background: "rgba(255,255,255,0.72)",
+                        }}
+                      >
+                        <strong style={{ display: "block", marginBottom: 7 }}>
+                          {option.recipe.name}
+                        </strong>
+                        <span style={{ display: "block", marginBottom: 12 }}>
+                          {option.kcal} kcal · {option.protein} g fehérje · {String(option.portions).replace(".", ",")} adag
+                        </span>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void addRecipeToMeals(option.recipe, option.portions, "Reggeli")}
+                        >
+                          Ezt választom
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 26, paddingTop: 22, borderTop: "1px solid rgba(95, 61, 130, 0.10)" }}>
+                  <span className="card-kicker">2 · MOZGÁS</span>
+                  <h3 style={{ margin: "7px 0 6px", fontSize: "1.25rem" }}>
+                    Mikor férne bele ma {preferences.workout_minutes} perc mozgás?
+                  </h3>
+                  <p style={{ marginTop: 0 }}>
+                    Nem kell most megcsinálnod. Elég, ha helyet adsz neki a napodban.
+                  </p>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {(["Délelőtt", "Délután", "Este"] as const).map((time) => (
+                      <button
+                        key={time}
+                        type="button"
+                        className={morningMovementTime === time ? "secondary-button active" : "secondary-button"}
+                        onClick={() => chooseMorningMovementTime(time)}
+                        style={{
+                          appearance: "none",
+                          border: morningMovementTime === time
+                            ? "1px solid rgba(122, 75, 157, 0.38)"
+                            : "1px solid rgba(122, 75, 157, 0.18)",
+                          borderRadius: 14,
+                          padding: "11px 16px",
+                          background: morningMovementTime === time
+                            ? "linear-gradient(135deg, rgba(255,126,139,0.16), rgba(154,112,219,0.18))"
+                            : "rgba(255,255,255,0.82)",
+                          color: "#6f3f8f",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          boxShadow: morningMovementTime === time
+                            ? "0 8px 20px rgba(111,63,143,0.10)"
+                            : "none",
+                        }}
+                      >
+                        {morningMovementTime === time ? `${time} ✓` : time}
+                      </button>
+                    ))}
+                  </div>
+                  {morningMovementTime && (
+                    <p style={{ margin: "12px 0 0", fontWeight: 700 }}>
+                      Rendben. {morningMovementTime.toLocaleLowerCase("hu")} visszatérünk a mozgásodra.
+                    </p>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 26, paddingTop: 22, borderTop: "1px solid rgba(95, 61, 130, 0.10)" }}>
+                  <span className="card-kicker">KÉSŐBB</span>
+                  <h3 style={{ margin: "7px 0 6px", fontSize: "1.25rem" }}>
+                    Az ebédet ráérsz később megtervezni.
+                  </h3>
+                  <p style={{ margin: 0 }}>
+                    Amikor közeledik az ebéd ideje, innen folytatjuk a napodat.
+                  </p>
+                </div>
+              </section>
+            ) : currentHour < 20 ? (
+              <section
+                className="dashboard-card"
+                aria-labelledby="today-guide-title"
+                style={{
+                  padding: "26px",
+                  marginBottom: 20,
+                  background:
+                    "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(247,238,249,0.96))",
+                }}
+              >
+                {isLunchPhase ? (
+                  <>
+                    <span className="card-kicker">EBÉD · KÖVETKEZŐ JÓ LÉPÉS</span>
+                    <h2 id="today-guide-title" style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}>
+                      {lunchMeal ? "Az ebéded már megvan." : "Mit ennél ma szívesen ebédre?"}
+                    </h2>
+                    <p style={{ margin: "0 0 16px", maxWidth: 760 }}>
+                      {lunchMeal
+                        ? lunchMeal.consumed
+                          ? "Az ebédet már rögzítetted. Innen folytathatod nyugodtan a napodat."
+                          : "Már kiválasztottad az ebédedet. Akkor jelöld elfogyasztottnak, amikor valóban megetted."
+                        : "Három hozzád illő lehetőséget mutatok. Nem kell tökéleteset választanod — azt válaszd, amelyik most jól esik."}
+                    </p>
+
+                    {lunchMeal ? (
+                      <button type="button" className="primary-button" onClick={() => setView("meals")}>
+                        Mai étkezések →
+                      </button>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                        {lunchOptions.map((option) => (
+                          <article key={option.recipe.id} style={{ padding: 16, border: "1px solid rgba(95, 61, 130, 0.10)", borderRadius: 18, background: "rgba(255,255,255,0.72)" }}>
+                            <strong style={{ display: "block", marginBottom: 7 }}>{option.recipe.name}</strong>
+                            <span style={{ display: "block", marginBottom: 12 }}>
+                              {option.kcal} kcal · {option.protein} g fehérje · {String(option.portions).replace(".", ",")} adag
+                            </span>
+                            <button type="button" className="secondary-button" onClick={() => void addRecipeToMeals(option.recipe, option.portions, "Ebéd")}>
+                              Ezt választom
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : isAfternoonPhase ? (
+                  <div style={{ display: "flex", gap: 20, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 420px" }}>
+                      <span className="card-kicker">DÉLUTÁNI RITMUS</span>
+                      <h2 id="today-guide-title" style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}>
+                        {movementDone
+                          ? "A mozgásod már megvan ✨"
+                          : morningMovementTime === "Délután"
+                            ? `Most jöhet a ${todayWorkout.minutes} perces mozgásod.`
+                            : morningMovementTime === "Este"
+                              ? "A mozgást estére tervezted."
+                              : morningMovementTime === "Délelőtt"
+                                ? "A délelőtti mozgás most sem kötelező bepótlás."
+                                : "Mi lenne most a következő jó lépés?"}
+                      </h2>
+                      <p style={{ margin: 0, maxWidth: 720 }}>
+                        {movementDone
+                          ? "Nem kell újabb feladatot keresned. Folytasd a saját ritmusodban."
+                          : morningMovementTime === "Délután"
+                            ? `Reggel délutánra tervezted. Ha most belefér, a ${todayWorkout.title.toLocaleLowerCase("hu")} lehet a következő lépés.`
+                            : morningMovementTime === "Este"
+                              ? "Most nem kell előrevenned. Este visszatérünk rá, addig folytasd nyugodtan a napodat."
+                              : morningMovementTime === "Délelőtt"
+                                ? "Ha délelőtt nem fért bele, nem maradtál le semmiről. Megcsinálhatod később is, vagy elengedheted mára."
+                                : "Ha belefér, most jó helye lehet egy rövid mozgásnak. Ha nem, semmi baj — később is visszatérhetsz hozzá."}
+                      </p>
+                    </div>
+                    {!movementDone && (
+                      <button type="button" className="primary-button" onClick={() => setView("movement")} style={{ minWidth: 190 }}>
+                        Mozgás megnyitása →
+                      </button>
+                    )}
+                  </div>
+                ) : isDinnerPhase ? (
+                  <>
+                    <span className="card-kicker">VACSORA · KÖVETKEZŐ JÓ LÉPÉS</span>
+                    <h2 id="today-guide-title" style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}>
+                      {dinnerMeal ? "A vacsorád már megvan." : "Mit ennél ma szívesen vacsorára?"}
+                    </h2>
+                    <p style={{ margin: "0 0 16px", maxWidth: 760 }}>
+                      {dinnerMeal
+                        ? dinnerMeal.consumed
+                          ? "A vacsorát már rögzítetted. Innen már nyugodtan lezárhatod majd a napodat."
+                          : "Már kiválasztottad a vacsorádat. Akkor jelöld elfogyasztottnak, amikor valóban megetted."
+                        : "Három könnyen követhető, hozzád illő lehetőséget mutatok. A döntés a tiéd."}
+                    </p>
+
+                    {dinnerMeal ? (
+                      <button type="button" className="primary-button" onClick={() => setView("meals")}>
+                        Mai étkezések →
+                      </button>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                        {dinnerOptions.map((option) => (
+                          <article key={option.recipe.id} style={{ padding: 16, border: "1px solid rgba(95, 61, 130, 0.10)", borderRadius: 18, background: "rgba(255,255,255,0.72)" }}>
+                            <strong style={{ display: "block", marginBottom: 7 }}>{option.recipe.name}</strong>
+                            <span style={{ display: "block", marginBottom: 12 }}>
+                              {option.kcal} kcal · {option.protein} g fehérje · {String(option.portions).replace(".", ",")} adag
+                            </span>
+                            <button type="button" className="secondary-button" onClick={() => void addRecipeToMeals(option.recipe, option.portions, "Vacsora")}>
+                              Ezt választom
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+
+                    {!movementDone && morningMovementTime === "Este" && (
+                      <div
+                        style={{
+                          marginTop: 18,
+                          padding: "14px 16px",
+                          borderRadius: 16,
+                          background: "rgba(246, 239, 251, 0.82)",
+                          border: "1px solid rgba(122, 75, 157, 0.12)",
+                        }}
+                      >
+                        <span className="card-kicker">MA ESTÉRE TERVEZTED</span>
+                        <p style={{ margin: "6px 0 10px" }}>
+                          A vacsora után, ha még jól esik, visszatérhetünk a {todayWorkout.minutes} perces mozgásodra.
+                        </p>
+                        <button type="button" className="secondary-button" onClick={() => setView("movement")}>
+                          Mozgás megnyitása →
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </section>
+            ) : (
+              <section
+                className="dashboard-card"
+                aria-labelledby="evening-guide-title"
+                style={{
+                  padding: "26px",
+                  marginBottom: 20,
+                  background:
+                    "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(247,238,249,0.96))",
+                }}
+              >
+                <span className="card-kicker">ESTI LEZÁRÁS</span>
+                <h2
+                  id="evening-guide-title"
+                  style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}
+                >
+                  {movementDone || meals.some((meal) => meal.consumed)
+                    ? "Vedd észre, ami ma sikerült ✨"
+                    : "Ez a nap is számít."}
+                </h2>
+                <p style={{ margin: "0 0 20px", maxWidth: 760 }}>
+                  {movementDone && meals.some((meal) => meal.consumed)
+                    ? "Étkeztél, mozogtál, tettél magadért. Nem a tökéletesség számít, hanem hogy újra és újra visszatalálj magadhoz."
+                    : "Nem kell este bepótolni mindent. Zárd le nyugodtan a napot, és válassz egy könnyű kapaszkodót holnap reggelre."}
+                </p>
+
+                <div style={{ paddingTop: 18, borderTop: "1px solid rgba(95, 61, 130, 0.10)" }}>
+                  <span className="card-kicker">HOLNAP REGGEL</span>
+                  <h3 style={{ margin: "7px 0 6px", fontSize: "1.25rem" }}>
+                    Mivel indítanád szívesen a napod?
+                  </h3>
+                  <p style={{ marginTop: 0 }}>
+                    Nem kötelező terv. Csak válassz egy dolgot, ami jól esne.
+                  </p>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {(["Nyugodt reggeli", "Rövid mozgás", "Lassabb indulás"] as const).map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        className={tomorrowStart === choice ? "secondary-button active" : "secondary-button"}
+                        onClick={() => chooseTomorrowStart(choice)}
+                        style={{
+                          appearance: "none",
+                          border: tomorrowStart === choice
+                            ? "1px solid rgba(122, 75, 157, 0.38)"
+                            : "1px solid rgba(122, 75, 157, 0.18)",
+                          borderRadius: 14,
+                          padding: "11px 16px",
+                          background: tomorrowStart === choice
+                            ? "linear-gradient(135deg, rgba(255,126,139,0.16), rgba(154,112,219,0.18))"
+                            : "rgba(255,255,255,0.82)",
+                          color: "#6f3f8f",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          boxShadow: tomorrowStart === choice
+                            ? "0 8px 20px rgba(111,63,143,0.10)"
+                            : "none",
+                        }}
+                      >
+                        {tomorrowStart === choice ? `${choice} ✓` : choice}
+                      </button>
+                    ))}
+                  </div>
+                  {tomorrowStart && (
+                    <p style={{ margin: "12px 0 0", fontWeight: 700 }}>
+                      Rendben. Holnap reggel innen indulunk: {tomorrowStart.toLocaleLowerCase("hu")}.
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
+
             <section className="summary-grid">
               <article className="summary-card coral-card">
                 <div className="summary-card-top">
@@ -1735,93 +2823,6 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   {movementDone ? "Mai mozgások" : "Teljesítve"}
                 </button>
               </article>
-            </section>
-
-            <section className="today-path" aria-labelledby="today-path-title">
-              <div className="today-path-heading">
-                <div>
-                  <span className="card-kicker">SZEMÉLYRE SZABOTT MAI ÚTVONAL</span>
-                  <h2 id="today-path-title">{nextStepTitle}</h2>
-                  <p>Nem kötelező lista — egyetlen teljesített lépés is jó irány.</p>
-                </div>
-                <div className="today-path-progress">
-                  <strong>{todayPathCompleted}/3</strong>
-                  <span>mai lépés kész</span>
-                  <div aria-hidden="true"><i style={{ width: `${(todayPathCompleted / 3) * 100}%` }} /></div>
-                </div>
-              </div>
-
-              <div className="today-path-steps">
-                <article className={meals.some((meal) => meal.consumed) ? "today-step complete" : "today-step"}>
-                  <div className="today-step-number">{meals.some((meal) => meal.consumed) ? "✓" : "1"}</div>
-                  <div className="today-step-copy">
-                    <span>
-                      ÉTKEZÉSI FÓKUSZ · {todayPlan.day}
-                      {dailyRecipeRecommendation ? " · SZEMÉLYES AJÁNLÁS" : ""}
-                    </span>
-                    <h3>
-                      {dailyRecipeRecommendation
-                        ? `${dailyRecipeRecommendation.recipe.name} · ${String(dailyRecipeRecommendation.portions).replace(".", ",")} adag`
-                        : todayPlan.food}
-                    </h3>
-                    <p>
-                      {dailyRecipeRecommendation
-                        ? `Kb. ${dailyRecipeRecommendation.kcal} kcal és ${dailyRecipeRecommendation.protein} g fehérje. A megadott étrendi, allergén- és alapanyag-szűrők alapján választva.`
-                        : "Ments el néhány saját receptet, és itt személyre szabott recept- és adagjavaslat jelenik meg."}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (meals.some((meal) => !meal.consumed) || meals.some((meal) => meal.consumed)) {
-                        setView("meals");
-                        return;
-                      }
-                      if (dailyRecipeRecommendation) {
-                        void addRecipeToMeals(
-                          dailyRecipeRecommendation.recipe,
-                          dailyRecipeRecommendation.portions,
-                        );
-                        return;
-                      }
-                      setView("recipes");
-                    }}
-                  >
-                    {meals.length > 0
-                      ? "Mai étkezések →"
-                      : dailyRecipeRecommendation
-                        ? "Ajánlott adag hozzáadása →"
-                        : "Receptek megnyitása →"}
-                  </button>
-                </article>
-
-                <article className={movementDone ? "today-step complete" : "today-step"}>
-                  <div className="today-step-number">{movementDone ? "✓" : "2"}</div>
-                  <div className="today-step-copy">
-                    <span>AJÁNLOTT MOZGÁS · {todayWorkout.minutes} PERC</span>
-                    <h3>{todayWorkout.title}</h3>
-                    <p>{todayWorkout.description}</p>
-                  </div>
-                  <button type="button" onClick={() => setView("movement")}>Program megnyitása →</button>
-                </article>
-
-                <article className={todayChallengeDone ? "today-step complete" : "today-step"}>
-                  <div className="today-step-number">{todayChallengeDone ? "✓" : "3"}</div>
-                  <div className="today-step-copy">
-                    <span>MAI KIS KIHÍVÁS · {todayChallenge.kicker}</span>
-                    <h3>{todayChallenge.title}</h3>
-                    <p>{todayChallenge.description}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => todayChallengeDone
-                      ? setView("challenges")
-                      : toggleChallengeDay(todayChallenge.id, todayPlanIndex)}
-                  >
-                    {todayChallengeDone ? "Heti kihívások →" : "Mai lépés kész ✓"}
-                  </button>
-                </article>
-              </div>
             </section>
 
             <section className="dashboard-content-grid">
@@ -1900,6 +2901,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   <div>
                     <span className="card-kicker">FOLYADÉK</span>
                     <h2>Hidratálás</h2>
+                  <p style={{ margin: "8px 0 12px" }}>
+                    Ne feledkezz meg a folyadékbevitelről sem.
+                  </p>
                   </div>
                   <div className="water-orb">◌</div>
                 </div>
@@ -1961,7 +2965,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               <article className="dashboard-card focus-card">
                 <span className="focus-icon">✦</span>
                 <span className="card-kicker">MAI FÓKUSZ</span>
-                <h2>Nem kell tökéletes nap.</h2>
+                <h2>Ez lehet egy tökéletes nap.</h2>
                 <p>
                   Egy kiegyensúlyozott étkezés, egy kis folyadék és húsz perc
                   mozgás már számít.
@@ -2024,6 +3028,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                             </small>
                           )}
                         </p>
+                        {recommendation?.recipe && (
+                          <button
+                            type="button"
+                            className="workout-details-button"
+                            onClick={() => swapWeeklyRecipe(index)}
+                          >
+                            Cseréld le ↻
+                          </button>
+                        )}
                       </div>
                     <div>
                       <i className="weekly-dot movement-dot">⌁</i>
@@ -2063,6 +3076,22 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <span>/ {shoppingItems.length} kész</span>
               </div>
             </section>
+
+            {shoppingNotice && (
+              <div
+                role="status"
+                style={{
+                  margin: "0 0 18px",
+                  padding: "14px 18px",
+                  borderRadius: 16,
+                  background: "rgba(147, 91, 190, 0.10)",
+                  border: "1px solid rgba(147, 91, 190, 0.16)",
+                  fontWeight: 700,
+                }}
+              >
+                {shoppingNotice}
+              </div>
+            )}
 
             <div className="shopping-layout">
               <section className="shopping-groups" aria-label="Heti bevásárlólista">
@@ -2138,7 +3167,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           <RecipesView
             storageKey={recipeStorageKey}
             onAddMeal={addRecipeToMeals}
-            onAddShopping={addRecipeIngredientsToShopping}
+            onAddShopping={handleRecipeShopping}
+            onOpenShopping={() => setView("shopping")}
             preferences={preferences}
           />
         )}
@@ -2269,6 +3299,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             onComplete={completeWorkout}
             preferredMinutes={preferences.workout_minutes}
             preferredLevel={preferences.fitness_level}
+            movementLimitations={preferences.movement_limitations}
           />
         )}
 
@@ -2320,6 +3351,56 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     {value}
                   </button>
                 ))}
+              </div>
+            </article>
+          </section>
+        )}
+
+        {view === "settings" && (
+          <section className="dashboard-content-grid">
+            <PreferencesPanel
+              session={session}
+              guestMode={guestMode}
+              initial={preferences}
+              onChange={(next) => {
+                setPreferences(next);
+                if (profile && onProfileChange) {
+                  onProfileChange({ ...profile, ...next });
+                }
+              }}
+            />
+
+            <article className="dashboard-card">
+              <span className="card-kicker">SZEMÉLYRE SZABÁS</span>
+              <h2>Ezek alapján ajánlunk.</h2>
+              <p className="wellbeing-lead">
+                Az itt megadott étrendi és mozgási beállítások közvetlenül
+                befolyásolják a recept-, napi menü- és mozgásajánlásokat.
+              </p>
+
+              <div className="wellbeing-lines">
+                <div>
+                  <strong>Étrend</strong>
+                  <span>
+                    {preferences.diet_type === "vegan"
+                      ? "Vegán"
+                      : preferences.diet_type === "vegetarian"
+                        ? "Vegetáriánus"
+                        : "Mindenevő"}
+                  </span>
+                </div>
+                <div>
+                  <strong>Allergének</strong>
+                  <span>
+                    {preferences.allergens.length > 0
+                      ? `${preferences.allergens.length} megadva`
+                      : "Nincs megadva"}
+                  </span>
+                </div>
+                <div>
+                  <strong>Edzés</strong>
+                  <span>{preferences.workout_minutes} perc</span>
+                </div>
               </div>
             </article>
           </section>
