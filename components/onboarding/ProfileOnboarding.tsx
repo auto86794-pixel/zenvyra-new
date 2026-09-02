@@ -283,7 +283,7 @@ export default function ProfileOnboarding({
           <div className="internal-brand-logo" aria-hidden="true">
             <Image
               className="internal-brand-logo-image"
-              src="/zenvyra-lotus-white.png"
+              src="/zenvyra-internal-logo.png"
               alt=""
               width={512}
               height={512}
