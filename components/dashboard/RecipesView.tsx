@@ -726,15 +726,6 @@ export default function RecipesView({
     setMessage(saved ? `${recipe.name} bekerült a mai étkezésekhez.` : "A recept mentése nem sikerült.");
   }
 
-  function addToShopping(recipe: Recipe) {
-    const added = onAddShopping(recipe.ingredients);
-    setMessage(
-      added > 0
-        ? `${added} hozzávaló átkerült a bevásárlólistára.`
-        : "Minden hozzávaló szerepel már a bevásárlólistán.",
-    );
-  }
-
   function addDetailRecipeToShopping(recipe: Recipe) {
     try {
       const added = onAddShopping(recipe.ingredients);

@@ -581,6 +581,25 @@ button {
   padding: 4px 5px 25px;
 }
 
+.internal-brand-logo {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  padding: 7px;
+  border-radius: 17px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #ff9789, #ff766f);
+  box-shadow: 0 12px 28px rgba(255, 119, 111, 0.2);
+}
+
+.internal-brand-logo-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
 .dashboard-brand .lotus {
   width: 48px;
   height: 48px;
@@ -3351,6 +3370,15 @@ button {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.onboarding-brand .internal-brand-logo {
+  width: 54px;
+  height: 54px;
+  flex-basis: 54px;
+  padding: 8px;
+  border-radius: 19px;
+  box-shadow: 0 12px 28px rgba(35, 18, 48, 0.2);
 }
 
 .onboarding-brand .lotus {

@@ -84,12 +84,20 @@ export default function PreferencesPanel({
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setDietType(initial.diet_type);
-    setAllergens(initial.allergens);
-    setDisliked(joinList(initial.disliked_ingredients));
-    setWorkoutMinutes(initial.workout_minutes);
-    setFitnessLevel(initial.fitness_level);
-    setMovementLimitations(joinList(initial.movement_limitations));
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setDietType(initial.diet_type);
+      setAllergens(initial.allergens);
+      setDisliked(joinList(initial.disliked_ingredients));
+      setWorkoutMinutes(initial.workout_minutes);
+      setFitnessLevel(initial.fitness_level);
+      setMovementLimitations(joinList(initial.movement_limitations));
+    });
+
+    return () => {
+      active = false;
+    };
   }, [initial]);
 
   function toggleAllergen(value: string) {

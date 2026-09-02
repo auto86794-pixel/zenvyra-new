@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -279,7 +280,15 @@ export default function ProfileOnboarding({
     <main className="onboarding-shell">
       <section className="onboarding-visual">
         <div className="onboarding-brand">
-          <div className="dashboard-brand-mark">✦</div>
+          <div className="internal-brand-logo" aria-hidden="true">
+            <Image
+              className="internal-brand-logo-image"
+              src="/zenvyra-lotus-white.png"
+              alt=""
+              width={512}
+              height={512}
+            />
+          </div>
           <div>
             <strong>ZENVYRA</strong>
             <span>wellness for you</span>

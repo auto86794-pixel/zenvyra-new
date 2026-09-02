@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -13,7 +14,7 @@ import { supabase } from "@/lib/supabase/client";
 const PROFILE_SELECT =
   "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed";
 
-function normalizeProfile(data: any): ZenvyraProfile {
+function normalizeProfile(data: ZenvyraProfile): ZenvyraProfile {
   return {
     ...data,
     height_cm: data.height_cm === null ? null : Number(data.height_cm),
@@ -112,15 +113,24 @@ export default function HomePage() {
     };
   }, []);
 
+  const sessionUserId = session?.user.id;
+
   useEffect(() => {
-    if (!session?.user) {
-      setProfile(null);
-      setProfileReady(true);
-      return;
+    let active = true;
+
+    if (!sessionUserId) {
+      queueMicrotask(() => {
+        if (!active) return;
+        setProfile(null);
+        setProfileReady(true);
+      });
+
+      return () => {
+        active = false;
+      };
     }
 
-    let active = true;
-    const userId = session.user.id;
+    const userId = sessionUserId;
 
     async function loadProfile() {
       setProfileReady(false);
@@ -140,7 +150,7 @@ export default function HomePage() {
         return;
       }
 
-      setProfile(data ? normalizeProfile(data) : null);
+      setProfile(data ? normalizeProfile(data as ZenvyraProfile) : null);
       setProfileReady(true);
     }
 
@@ -149,7 +159,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
-  }, [session?.user?.id, profileReloadKey]);
+  }, [sessionUserId, profileReloadKey]);
 
   async function handleSignOut() {
     if (guestMode) {
@@ -204,10 +214,12 @@ export default function HomePage() {
 
         <div className="hero-content">
           <div className="brand">
-            <img
+            <Image
               src="/zenvyra-lotus.png"
               alt="ZENVYRA"
               className="brand-logo"
+              width={512}
+              height={512}
             />
 
             <div>

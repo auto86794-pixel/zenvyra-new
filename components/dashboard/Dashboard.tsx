@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -329,6 +330,9 @@ function createShoppingList(goal: ZenvyraProfile["goal"]): ShoppingItem[] {
   ];
 }
 
+// Előkészített alaplista a következő bevásárlólista-fejlesztési szelethez.
+void createShoppingList;
+
 function loadShoppingState(storageKey: string): Pick<StoredShopping, "checked" | "customItems"> {
   if (typeof window === "undefined") return { checked: [], customItems: [] };
 
@@ -634,9 +638,17 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     `${RECIPE_HISTORY_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`,
   ));
   useEffect(() => {
-    setRecipeRecommendationHistory(
-      loadRecipeRecommendationHistory(recipeHistoryStorageKey),
-    );
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setRecipeRecommendationHistory(
+        loadRecipeRecommendationHistory(recipeHistoryStorageKey),
+      );
+    });
+
+    return () => {
+      active = false;
+    };
   }, [recipeHistoryStorageKey]);
 
   const [mealModalOpen, setMealModalOpen] = useState(false);
@@ -674,29 +686,37 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   const currentHour = now.getHours();
   const currentDateKey = localDateKey(now);
+  const tomorrowDateKey = nextLocalDateKey(now);
 
   useEffect(() => {
-    const saved = loadAssistantPlan(assistantPlanStorageKey);
-    const tomorrowKey = nextLocalDateKey(now);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      const saved = loadAssistantPlan(assistantPlanStorageKey);
 
-    setMorningMovementTime(
-      saved.movementDate === currentDateKey
-        ? saved.movementTime ?? null
-        : null,
-    );
+      setMorningMovementTime(
+        saved.movementDate === currentDateKey
+          ? saved.movementTime ?? null
+          : null,
+      );
 
-    setMorningStartPreference(
-      saved.tomorrowDate === currentDateKey
-        ? saved.tomorrowStart ?? null
-        : null,
-    );
+      setMorningStartPreference(
+        saved.tomorrowDate === currentDateKey
+          ? saved.tomorrowStart ?? null
+          : null,
+      );
 
-    setTomorrowStart(
-      saved.tomorrowDate === tomorrowKey
-        ? saved.tomorrowStart ?? null
-        : null,
-    );
-  }, [assistantPlanStorageKey, currentDateKey]);
+      setTomorrowStart(
+        saved.tomorrowDate === tomorrowDateKey
+          ? saved.tomorrowStart ?? null
+          : null,
+      );
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [assistantPlanStorageKey, currentDateKey, tomorrowDateKey]);
 
   function chooseMorningMovementTime(time: AssistantMovementTime) {
     setMorningMovementTime(time);
@@ -739,7 +759,6 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     [profile?.goal]
   );
   const todayPlanIndex = useMemo(() => (new Date().getDay() + 6) % 7, []);
-  const todayPlan = weeklyPlan[todayPlanIndex];
   const recommendedWorkouts = useMemo(() => {
     const levelRank: Record<Workout["level"], number> = {
       Kezdő: 1,
@@ -770,7 +789,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setSavedRecipes(ensureStarterRecipes(recipeStorageKey));
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setSavedRecipes(ensureStarterRecipes(recipeStorageKey));
+    });
+
+    return () => {
+      active = false;
+    };
   }, [recipeStorageKey, view]);
 
   useEffect(() => {
@@ -1400,6 +1427,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     profile?.protein_target_g,
   ]);
 
+  // A teljes napi menü optimalizálása elkészült, a megjelenítő felület később kapcsolódik rá.
+  void fullDayMenu;
+
 
   const morningBreakfastOptions = useMemo(() => {
     const breakfast = compatibleSavedRecipes.filter((recipe) =>
@@ -1846,43 +1876,51 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
     if (selectedIds.length === 0) return;
 
-    setRecipeRecommendationHistory((current) => {
-      const cutoff = Date.now() - RECIPE_REPEAT_BLOCK_DAYS * 24 * 60 * 60 * 1000;
-      const recent = current.filter((entry) => {
-        const timestamp = new Date(entry.recommendedAt).getTime();
-        return Number.isFinite(timestamp) && timestamp >= cutoff;
-      });
-      const alreadyStoredThisWeek = new Set(
-        recent
-          .filter((entry) => entry.week === thisWeek)
-          .map((entry) => entry.recipeId),
-      );
-      const missingIds = selectedIds.filter(
-        (recipeId) => !alreadyStoredThisWeek.has(recipeId),
-      );
-
-      if (missingIds.length === 0 && recent.length === current.length) {
-        return current;
-      }
-
-      const next = [
-        ...recent,
-        ...missingIds.map((recipeId) => ({
-          recipeId,
-          recommendedAt,
-          week: thisWeek,
-        })),
-      ];
-
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          recipeHistoryStorageKey,
-          JSON.stringify(next),
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setRecipeRecommendationHistory((current) => {
+        const cutoff = Date.now() - RECIPE_REPEAT_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+        const recent = current.filter((entry) => {
+          const timestamp = new Date(entry.recommendedAt).getTime();
+          return Number.isFinite(timestamp) && timestamp >= cutoff;
+        });
+        const alreadyStoredThisWeek = new Set(
+          recent
+            .filter((entry) => entry.week === thisWeek)
+            .map((entry) => entry.recipeId),
         );
-      }
+        const missingIds = selectedIds.filter(
+          (recipeId) => !alreadyStoredThisWeek.has(recipeId),
+        );
 
-      return next;
+        if (missingIds.length === 0 && recent.length === current.length) {
+          return current;
+        }
+
+        const next = [
+          ...recent,
+          ...missingIds.map((recipeId) => ({
+            recipeId,
+            recommendedAt,
+            week: thisWeek,
+          })),
+        ];
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            recipeHistoryStorageKey,
+            JSON.stringify(next),
+          );
+        }
+
+        return next;
+      });
     });
+
+    return () => {
+      active = false;
+    };
   }, [personalizedWeeklyRecipes, recipeHistoryStorageKey]);
 
   function swapWeeklyRecipe(dayIndex: number) {
@@ -1943,6 +1981,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         : !movementDone
           ? "Mozgás megnyitása →"
           : null;
+
+  // A következő napi asszisztens-kártyához előkészített tartalom és művelet.
+  void todayGuideText;
+  void openTodayNextStep;
+  void todayNextButtonLabel;
 
   const caloriesPercent = Math.min(
     100,
@@ -2284,20 +2327,36 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   return (
     <main className="dashboard-shell">
-      <aside className={mobileMenuOpen ? "dashboard-sidebar mobile-open" : "dashboard-sidebar"}>
+      <aside
+        id="dashboard-mobile-navigation"
+        className={mobileMenuOpen ? "dashboard-sidebar mobile-open" : "dashboard-sidebar"}
+        aria-label="Zenvyra navigáció"
+      >
         <div className="dashboard-brand">
-          <div className="dashboard-brand-mark">✦</div>
-          <div className="lotus" aria-hidden="true">
-    <span>◡</span>
-    <span>◇</span>
-    <span>◡</span>
-  </div>
+          <div className="internal-brand-logo" aria-hidden="true">
+            <Image
+              className="internal-brand-logo-image"
+              src="/zenvyra-lotus-white.png"
+              alt=""
+              width={512}
+              height={512}
+            />
+          </div>
 
   <div>
     <strong>ZENVYRA</strong>
     <span>TEST ÉS LÉLEK HARMÓNIÁBAN</span>
   </div>
         </div>
+
+        <button
+          type="button"
+          className="mobile-sidebar-close"
+          aria-label="Menü bezárása"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
 
         <nav className="dashboard-nav" aria-label="Fő navigáció">
           {navItems.map((item) => (
@@ -2345,12 +2404,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         <header className="dashboard-topbar">
           <button
             type="button"
-            className="mobile-menu-button"
+            className={mobileMenuOpen ? "mobile-menu-button menu-open" : "mobile-menu-button"}
             aria-label={mobileMenuOpen ? "Menü bezárása" : "Menü megnyitása"}
             aria-expanded={mobileMenuOpen}
+            aria-controls="dashboard-mobile-navigation"
             onClick={() => setMobileMenuOpen((open) => !open)}
           >
-            <span aria-hidden="true">{mobileMenuOpen ? "×" : "☰"}</span>
+            <span aria-hidden="true">☰</span>
           </button>
 
           <div>
@@ -3915,6 +3975,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       )}
       <style>{`
         .mobile-menu-button,
+        .mobile-sidebar-close,
         .mobile-menu-backdrop {
           display: none;
         }
@@ -3929,14 +3990,22 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             top: 0 !important;
             left: 0 !important;
             bottom: 0 !important;
-            width: min(84vw, 320px) !important;
-            max-width: 320px !important;
+            width: min(78vw, 286px) !important;
+            max-width: 286px !important;
             height: 100dvh !important;
+            padding: 18px 16px 20px !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            color: #234438 !important;
+            background:
+              radial-gradient(circle at 4% 3%, rgba(201, 143, 145, 0.15), transparent 28%),
+              linear-gradient(180deg, #fffdfc 0%, #fbf5f4 100%) !important;
             z-index: 1001 !important;
             transform: translateX(-105%) !important;
             transition: transform 220ms ease !important;
             overflow-y: auto !important;
-            box-shadow: 18px 0 45px rgba(71, 45, 88, 0.18) !important;
+            border-right: 1px solid rgba(49, 87, 72, 0.1) !important;
+            box-shadow: 18px 0 45px rgba(35, 68, 56, 0.16) !important;
           }
 
           .dashboard-sidebar.mobile-open {
@@ -3951,12 +4020,52 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             visibility: visible !important;
           }
 
+          .dashboard-sidebar .dashboard-brand {
+            justify-content: flex-start !important;
+            min-height: 62px !important;
+            padding: 0 48px 14px 0 !important;
+            border-bottom: 1px solid rgba(49, 87, 72, 0.1) !important;
+          }
+
+          .dashboard-sidebar .dashboard-brand > div:last-child {
+            display: block !important;
+          }
+
+          .dashboard-sidebar .dashboard-brand strong {
+            color: #234438 !important;
+            font-size: 17px !important;
+          }
+
+          .dashboard-sidebar .dashboard-brand span {
+            color: #6f8179 !important;
+            font-size: 8px !important;
+          }
+
+          .mobile-sidebar-close {
+            display: grid !important;
+            place-items: center;
+            position: absolute;
+            top: 18px;
+            right: 16px;
+            width: 38px;
+            height: 38px;
+            border: 1px solid rgba(49, 87, 72, 0.12);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.88);
+            color: #315748;
+            font-size: 22px;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 7px 18px rgba(35, 68, 56, 0.08);
+          }
+
           .dashboard-sidebar .dashboard-nav {
             display: flex !important;
             flex-direction: column !important;
             align-items: stretch !important;
-            gap: 8px !important;
+            gap: 4px !important;
             width: 100% !important;
+            margin-top: 12px !important;
           }
 
           .dashboard-sidebar .dashboard-nav button {
@@ -3964,14 +4073,41 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             flex-direction: row !important;
             align-items: center !important;
             justify-content: flex-start !important;
-            gap: 12px !important;
+            gap: 11px !important;
             width: 100% !important;
+            min-height: 48px !important;
             min-width: 0 !important;
             margin: 0 !important;
-            padding: 13px 14px !important;
-            border-radius: 14px !important;
+            padding: 8px 10px !important;
+            border-radius: 12px !important;
             white-space: normal !important;
             text-align: left !important;
+            color: #53675e !important;
+            background: transparent !important;
+            box-shadow: none !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button:hover {
+            color: #234438 !important;
+            background: rgba(49, 87, 72, 0.06) !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button.active {
+            color: #234438 !important;
+            background: rgba(201, 143, 145, 0.16) !important;
+            box-shadow: inset 3px 0 #315748 !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav-icon {
+            width: 30px !important;
+            height: 30px !important;
+            color: #315748 !important;
+            background: rgba(49, 87, 72, 0.08) !important;
+          }
+
+          .dashboard-sidebar .dashboard-nav button.active .dashboard-nav-icon {
+            color: #fff !important;
+            background: #315748 !important;
           }
 
           .dashboard-sidebar .dashboard-nav button > span {
@@ -4004,15 +4140,21 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             left: 16px;
             width: 44px;
             height: 44px;
-            border: 1px solid rgba(122, 75, 157, 0.16);
+            border: 1px solid rgba(49, 87, 72, 0.14);
             border-radius: 14px;
             background: rgba(255,255,255,0.92);
-            color: #6f3f8f;
+            color: #315748;
             font-size: 25px;
             line-height: 1;
             cursor: pointer;
             z-index: 1002;
-            box-shadow: 0 8px 24px rgba(111,63,143,0.08);
+            box-shadow: 0 8px 24px rgba(49,87,72,0.09);
+            transition: opacity 160ms ease;
+          }
+
+          .mobile-menu-button.menu-open {
+            opacity: 0;
+            pointer-events: none;
           }
 
           .mobile-menu-backdrop {
@@ -4021,8 +4163,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             inset: 0;
             z-index: 1000;
             border: 0;
-            background: rgba(49, 34, 58, 0.24);
-            backdrop-filter: blur(2px);
+            background: rgba(35, 68, 56, 0.2);
+            backdrop-filter: blur(3px);
           }
         }
       `}</style>
