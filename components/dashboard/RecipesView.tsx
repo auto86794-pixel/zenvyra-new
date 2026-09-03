@@ -77,8 +77,12 @@ const proteinParts: RecipePart[] = [
 
 const baseParts: RecipePart[] = [
   { key: "rice", name: "Főtt rizs", amount: "300 g", kcal: 390, protein: 8, carbs: 84, fat: 1 },
+  { key: "brownrice", name: "Főtt barna rizs", amount: "300 g", kcal: 335, protein: 8, carbs: 69, fat: 3 },
   { key: "potato", name: "Burgonya", amount: "520 g", kcal: 400, protein: 10, carbs: 88, fat: 1 },
   { key: "quinoa", name: "Főtt quinoa", amount: "300 g", kcal: 360, protein: 13, carbs: 64, fat: 6 },
+  { key: "millet", name: "Főtt köles", amount: "300 g", kcal: 355, protein: 10, carbs: 71, fat: 3 },
+  { key: "buckwheat", name: "Főtt hajdina", amount: "300 g", kcal: 275, protein: 10, carbs: 60, fat: 2 },
+  { key: "couscous", name: "Főtt kuszkusz", amount: "300 g", kcal: 335, protein: 11, carbs: 69, fat: 1, allergens: ["gluten"] },
   { key: "pasta", name: "Főtt durumtészta", amount: "300 g", kcal: 465, protein: 17, carbs: 92, fat: 3, allergens: ["gluten"] },
   { key: "bulgur", name: "Főtt bulgur", amount: "320 g", kcal: 265, protein: 10, carbs: 60, fat: 1, allergens: ["gluten"] },
   { key: "sweetpotato", name: "Édesburgonya", amount: "500 g", kcal: 430, protein: 8, carbs: 100, fat: 1 },
@@ -343,6 +347,7 @@ const allergenIngredientRules: Array<{
       "durumtészta",
       "tészta",
       "bulgur",
+      "kuszkusz",
       "kenyér",
       "pirítós",
       "müzli",
@@ -407,7 +412,7 @@ function auditRecipeAllergens(recipe: Recipe): Recipe {
 }
 
 
-// 648 főétel + külön reggeli és kisétkezés receptek.
+// 1080 főétel + külön reggeli és kisétkezés receptek.
 // A mealTypes mező alapján a napi menütervező már nem csak makró szerint,
 // hanem az étkezés jellegéhez illően is tud majd választani.
 export const starterRecipes: Recipe[] = [
@@ -418,7 +423,7 @@ export const starterRecipes: Recipe[] = [
 export function ensureStarterRecipes(storageKey: string): Recipe[] {
   if (typeof window === "undefined") return starterRecipes;
 
-  const seedKey = `${storageKey}:starter-v7-atomic-ingredients`;
+  const seedKey = `${storageKey}:starter-v8-grain-rotation`;
 
   try {
     const raw = window.localStorage.getItem(storageKey);
@@ -625,11 +630,15 @@ export default function RecipesView({
 
     const baseOrder = [
       "rice",
-      "potato",
+      "brownrice",
       "quinoa",
-      "pasta",
+      "millet",
+      "buckwheat",
+      "couscous",
       "bulgur",
+      "potato",
       "sweetpotato",
+      "pasta",
     ];
 
     const flavorOrder = [
@@ -664,7 +673,7 @@ export default function RecipesView({
     generatedMainMeals.sort((a, b) => {
       const parse = (recipe: Recipe) => {
         const match = recipe.id.match(
-          /^zenvyra-(chicken|turkey|salmon|tuna|beef|egg|tofu|chickpea|lentil|tempeh|cottage|beans)-(rice|potato|quinoa|pasta|bulgur|sweetpotato)-(.+)$/,
+          /^zenvyra-(chicken|turkey|salmon|tuna|beef|egg|tofu|chickpea|lentil|tempeh|cottage|beans)-(rice|brownrice|potato|quinoa|millet|buckwheat|couscous|pasta|bulgur|sweetpotato)-(.+)$/,
         );
         if (!match) return [999, 999, 999] as const;
 
@@ -827,6 +836,22 @@ export default function RecipesView({
     } else if (has(/bulgur/)) {
       steps.push(
         "Ha a bulgur még nincs elkészítve: öntsd le kb. kétszeres mennyiségű forró vízzel, fedd le, és hagyd állni 12–15 percig.",
+      );
+    } else if (has(/kuszkusz/)) {
+      steps.push(
+        "Ha a kuszkusz még nincs elkészítve: öntsd le kb. azonos térfogatú forró vízzel, fedd le 5–8 percre, majd villával lazítsd át.",
+      );
+    } else if (has(/köles/)) {
+      steps.push(
+        "Ha a köles még nincs megfőzve: öblítsd át, majd 1 rész kölest kb. 2,5 rész vízzel főzz kis lángon 15–20 percig. Hagyd pár percet pihenni.",
+      );
+    } else if (has(/hajdina/)) {
+      steps.push(
+        "Ha a hajdina még nincs megfőzve: öblítsd át, majd 1 rész hajdinát kb. 2 rész vízzel főzz kis lángon 12–15 percig.",
+      );
+    } else if (has(/barna rizs/)) {
+      steps.push(
+        "Ha a barna rizs még nincs megfőzve: 1 rész rizshez adj kb. 2–2,5 rész vizet, majd kis lángon, fedő alatt főzd 25–35 percig.",
       );
     } else if (has(/durumtészta|tészta/)) {
       steps.push(

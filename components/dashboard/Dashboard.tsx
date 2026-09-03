@@ -97,6 +97,7 @@ type RecipeRecommendationHistoryEntry = {
 };
 
 const WEEKLY_PROTEIN_MAX = 2;
+const WEEKLY_BASE_MAX = 1;
 
 function recipeProteinGroup(recipe: Recipe): string {
   const generatedMatch = recipe.id.match(
@@ -128,6 +129,42 @@ function recipeProteinGroup(recipe: Recipe): string {
   }
 
   return `custom:${recipe.id}`;
+}
+
+function recipeBaseGroup(recipe: Recipe): string {
+  const generatedMatch = recipe.id.match(
+    /^zenvyra-(?:chicken|turkey|salmon|tuna|beef|egg|tofu|chickpea|lentil|tempeh|cottage|beans)-(rice|brownrice|potato|quinoa|millet|buckwheat|couscous|pasta|bulgur|sweetpotato)-/,
+  );
+
+  if (generatedMatch) return generatedMatch[1];
+
+  const searchable = [
+    recipe.name,
+    ...recipe.ingredients.map((ingredient) => ingredient.name),
+  ]
+    .join(" ")
+    .toLocaleLowerCase("hu");
+
+  const groups: Array<[string, string[]]> = [
+    ["brownrice", ["barna rizs"]],
+    ["quinoa", ["quinoa"]],
+    ["millet", ["köles"]],
+    ["buckwheat", ["hajdina"]],
+    ["couscous", ["kuszkusz"]],
+    ["bulgur", ["bulgur"]],
+    ["sweetpotato", ["édesburgonya"]],
+    ["potato", ["burgonya"]],
+    ["pasta", ["durumtészta", "tészta"]],
+    ["rice", ["főtt rizs", "rizs"]],
+  ];
+
+  for (const [group, needles] of groups) {
+    if (needles.some((needle) => searchable.includes(needle))) {
+      return group;
+    }
+  }
+
+  return "other";
 }
 
 function loadRecipeRecommendationHistory(
@@ -2471,8 +2508,116 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     profile?.protein_target_g,
   ]);
 
-  // A teljes napi menü optimalizálása elkészült, a megjelenítő felület később kapcsolódik rá.
-  void fullDayMenu;
+  const todayMealPlan = useMemo(() => {
+    const canonicalMealTypes = ["Reggeli", "Ebéd", "Vacsora", "Kisétkezés"] as const;
+
+    const existingByType = new Map(
+      canonicalMealTypes.map((type) => [
+        type,
+        meals.find((meal) => meal.type === type) ?? null,
+      ]),
+    );
+
+    const committedTotals = meals.reduce(
+      (sum, meal) => ({
+        kcal: sum.kcal + meal.kcal,
+        protein: sum.protein + meal.protein,
+        carbs: sum.carbs + meal.carbs,
+        fat: sum.fat + meal.fat,
+      }),
+      { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+
+    const openItems = fullDayMenu.filter(
+      (item) => !existingByType.get(item.type),
+    );
+
+    const baseSuggestedKcal = openItems.reduce(
+      (sum, item) => sum + (item.recommendation?.kcal ?? 0),
+      0,
+    );
+
+    const remainingCalories = Math.max(0, dailyGoal - committedTotals.kcal);
+    const scale =
+      baseSuggestedKcal > 0
+        ? Math.max(0.75, Math.min(1.25, remainingCalories / baseSuggestedKcal))
+        : 1;
+
+    return fullDayMenu.map((item) => {
+      const existing = existingByType.get(item.type);
+
+      if (existing) {
+        return {
+          ...item,
+          existing,
+          recommendation: null,
+        };
+      }
+
+      if (!item.recommendation) {
+        return {
+          ...item,
+          existing: null,
+          recommendation: null,
+        };
+      }
+
+      const recipe = item.recommendation.recipe;
+      const servings = Math.max(1, recipe.servings);
+      const portions = Math.max(
+        0.5,
+        Math.min(
+          1.5,
+          Math.round(item.recommendation.portions * scale * 4) / 4,
+        ),
+      );
+
+      return {
+        ...item,
+        existing: null,
+        recommendation: {
+          ...item.recommendation,
+          portions,
+          kcal: Math.round((recipe.kcal / servings) * portions),
+          protein: Math.round((recipe.protein / servings) * portions),
+          carbs: Math.round((recipe.carbs / servings) * portions),
+          fat: Math.round((recipe.fat / servings) * portions),
+        },
+      };
+    });
+  }, [dailyGoal, fullDayMenu, meals]);
+
+  const todayMealPlanSummary = useMemo(() => {
+    const consumed = meals.filter((meal) => meal.consumed);
+    const planned = meals.filter((meal) => !meal.consumed);
+    const remainingCalories = Math.max(0, dailyGoal - totals.kcal);
+
+    if (consumed.length === 0 && planned.length === 0) {
+      return `A mai tervet a ${dailyGoal} kcal-os célodhoz és a személyes szűrőidhez igazítottam.`;
+    }
+
+    if (remainingCalories <= 150) {
+      return "A mai energiakereted nagy része már összeállt. Nem kell újabb étkezést csak a számok miatt hozzáadnod.";
+    }
+
+    if (consumed.length > 0) {
+      return `${totals.kcal} kcal-t már elfogyasztottként rögzítettél. A hátralévő ajánlásokat a még fennmaradó kb. ${remainingCalories} kcal-hoz igazítom.`;
+    }
+
+    return "Van már tervezett étkezésed. A még üres étkezési helyeket ezekhez és a napi célodhoz igazítom.";
+  }, [dailyGoal, meals, totals.kcal]);
+
+  async function addTodayMealPlanItem(
+    item: (typeof todayMealPlan)[number],
+  ) {
+    if (!item.recommendation) return;
+
+    await addRecipeToMeals(
+      item.recommendation.recipe,
+      item.recommendation.portions,
+      item.type,
+    );
+  }
 
 
   const morningBreakfastOptions = useMemo(() => {
@@ -2633,27 +2778,47 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       orderedCandidates.map((item) => item.recipe.id),
     );
     const proteinCounts = new Map<string, number>();
+    const baseCounts = new Map<string, number>();
     let previousProtein: string | null = null;
+    let previousBase: string | null = null;
 
     return weeklyPlan.map((day, dayIndex) => {
       const availableCandidates = orderedCandidates.filter((item) =>
         unusedRecipeIds.has(item.recipe.id),
       );
 
-      // Heti fehérjeforrás-rotáció:
-      // 1) ne legyen ugyanaz a fő fehérje két egymást követő napon,
+      // Heti fehérje- és köretrotáció:
+      // 1) lehetőleg se ugyanaz a fehérje, se ugyanaz a köret ne jöjjön két egymást követő napon,
       // 2) ugyanaz a fehérjeforrás legfeljebb kétszer szerepeljen a héten,
-      // 3) a "Cseréld le" ugyanebből a megfelelő jelöltkörből választ másik receptet,
-      // 4) ha a szűrések miatt ez nem tartható, fokozatosan lazítunk a szabályon.
+      // 3) egy felismerhető köret lehetőleg csak egyszer szerepeljen a héten,
+      // 4) ha a személyes szűrések miatt ez nem tartható, fokozatosan lazítunk.
       const strongestCandidates = availableCandidates.filter((item) => {
         const proteinGroup = recipeProteinGroup(item.recipe);
-        const count = proteinCounts.get(proteinGroup) ?? 0;
-        return proteinGroup !== previousProtein && count < WEEKLY_PROTEIN_MAX;
+        const baseGroup = recipeBaseGroup(item.recipe);
+        const proteinCount = proteinCounts.get(proteinGroup) ?? 0;
+        const baseCount = baseCounts.get(baseGroup) ?? 0;
+
+        return (
+          proteinGroup !== previousProtein &&
+          baseGroup !== previousBase &&
+          proteinCount < WEEKLY_PROTEIN_MAX &&
+          (baseGroup === "other" || baseCount < WEEKLY_BASE_MAX)
+        );
+      });
+
+      const freshBaseCandidates = availableCandidates.filter((item) => {
+        const baseGroup = recipeBaseGroup(item.recipe);
+        return (
+          baseGroup !== previousBase &&
+          (baseGroup === "other" ||
+            (baseCounts.get(baseGroup) ?? 0) < WEEKLY_BASE_MAX)
+        );
       });
 
       const differentProteinCandidates = availableCandidates.filter((item) => {
         const proteinGroup = recipeProteinGroup(item.recipe);
-        return proteinGroup !== previousProtein;
+        const baseGroup = recipeBaseGroup(item.recipe);
+        return proteinGroup !== previousProtein && baseGroup !== previousBase;
       });
 
       const withinWeeklyMaxCandidates = availableCandidates.filter((item) => {
@@ -2664,11 +2829,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       const candidatePool =
         strongestCandidates.length > 0
           ? strongestCandidates
-          : differentProteinCandidates.length > 0
-            ? differentProteinCandidates
-            : withinWeeklyMaxCandidates.length > 0
-              ? withinWeeklyMaxCandidates
-              : availableCandidates;
+          : freshBaseCandidates.length > 0
+            ? freshBaseCandidates
+            : differentProteinCandidates.length > 0
+              ? differentProteinCandidates
+              : withinWeeklyMaxCandidates.length > 0
+                ? withinWeeklyMaxCandidates
+                : availableCandidates;
 
       const swapOffset = weeklyRecipeSwapOffsets[dayIndex] ?? 0;
       const selected =
@@ -2687,6 +2854,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         (proteinCounts.get(selectedProtein) ?? 0) + 1,
       );
       previousProtein = selectedProtein;
+
+      const selectedBase = recipeBaseGroup(selected.recipe);
+      if (selectedBase !== "other") {
+        baseCounts.set(
+          selectedBase,
+          (baseCounts.get(selectedBase) ?? 0) + 1,
+        );
+      }
+      previousBase = selectedBase;
 
       return {
         day: day.day,
@@ -3936,6 +4112,120 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   </button>
                 )}
               </div>
+            </section>
+
+            <section
+              className="dashboard-card"
+              aria-labelledby="today-meal-plan-title"
+              style={{
+                padding: "18px 20px",
+                marginBottom: 20,
+                background: "rgba(255,255,255,0.92)",
+                border: "1px solid rgba(122,75,157,0.10)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  gap: 14,
+                  flexWrap: "wrap",
+                  marginBottom: 14,
+                }}
+              >
+                <div style={{ flex: "1 1 420px" }}>
+                  <span className="card-kicker">ZENVYRA · MAI ÉTKEZÉSI TERV</span>
+                  <h2
+                    id="today-meal-plan-title"
+                    style={{ margin: "6px 0 5px", fontSize: "1.2rem" }}
+                  >
+                    A napodhoz igazítva
+                  </h2>
+                  <p style={{ margin: 0, lineHeight: 1.5 }}>
+                    {todayMealPlanSummary}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="outline-button"
+                  onClick={() => setView("meals")}
+                >
+                  Étkezések →
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gap: 9 }}>
+                {todayMealPlan.map((item) => {
+                  const recommendation = item.recommendation;
+
+                  return (
+                    <div
+                      key={item.type}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        padding: "11px 12px",
+                        borderRadius: 14,
+                        background: item.existing
+                          ? "rgba(102,170,132,0.07)"
+                          : "rgba(122,75,157,0.045)",
+                        border: "1px solid rgba(122,75,157,0.08)",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+                        <strong style={{ display: "block", marginBottom: 3 }}>
+                          {item.type}
+                          {item.optional ? " · opcionális" : ""}
+                        </strong>
+
+                        {item.existing ? (
+                          <span style={{ color: "#6f6576", lineHeight: 1.4 }}>
+                            {item.existing.food} · {item.existing.kcal} kcal ·{" "}
+                            {item.existing.consumed ? "elfogyasztva ✓" : "tervezve"}
+                          </span>
+                        ) : recommendation ? (
+                          <span style={{ color: "#6f6576", lineHeight: 1.4 }}>
+                            {recommendation.recipe.name} ·{" "}
+                            {String(recommendation.portions).replace(".", ",")} adag ·{" "}
+                            {recommendation.kcal} kcal · {recommendation.protein} g fehérje
+                          </span>
+                        ) : (
+                          <span style={{ color: "#8a7a90" }}>
+                            Most nincs megfelelő ajánlás ehhez az étkezéshez.
+                          </span>
+                        )}
+                      </div>
+
+                      {!item.existing && recommendation && (
+                        <button
+                          type="button"
+                          className="outline-button"
+                          onClick={() => void addTodayMealPlanItem(item)}
+                        >
+                          Mai tervhez adom
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p
+                style={{
+                  margin: "12px 0 0",
+                  fontSize: "0.8rem",
+                  lineHeight: 1.45,
+                  color: "#8a7a90",
+                }}
+              >
+                Az elfogyasztott és már megtervezett étkezéseket nem tervezzük újra.
+                Ha nap közben változik, amit ettél, a hátralévő ajánlások automatikusan
+                újraszámolódnak.
+              </p>
             </section>
 
             {currentHour < 11 ? (
