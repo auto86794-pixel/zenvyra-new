@@ -28,6 +28,10 @@ type Props = {
   preferredMinutes: 10 | 15 | 20 | 30 | 40;
   preferredLevel: "beginner" | "intermediate" | "advanced";
   movementLimitations?: string[];
+  zenvyraState?: "recovery" | "rebuild" | "balanced" | "progress";
+  energyLevel?: 1 | 2 | 3 | 4 | 5;
+  stressLevel?: 1 | 2 | 3 | 4 | 5;
+  moodLevel?: 1 | 2 | 3 | 4 | 5;
 };
 
 type DurationFilter = "all" | "10" | "15" | "20" | "30" | "40";
@@ -303,6 +307,10 @@ export default function MovementView({
   preferredMinutes,
   preferredLevel,
   movementLimitations = [],
+  zenvyraState = "balanced",
+  energyLevel,
+  stressLevel,
+  moodLevel,
 }: Props) {
   const [duration, setDuration] = useState<DurationFilter>(
     String(preferredMinutes) as Exclude<DurationFilter, "all">,
@@ -325,43 +333,6 @@ export default function MovementView({
         matchesLimitations(workout, normalizedLimitations),
       ),
     [normalizedLimitations],
-  );
-
-  const recommendedWorkout = useMemo(() => {
-    const preferredWorkoutLevel = initialLevel(preferredLevel);
-    const preferredRank = levelRank[preferredWorkoutLevel];
-
-    const candidates = suitableWorkouts
-      .filter(
-        (workout) =>
-          workout.minutes <= preferredMinutes &&
-          levelRank[workout.level] <= preferredRank,
-      )
-      .sort((a, b) => {
-        const aMinuteDiff = preferredMinutes - a.minutes;
-        const bMinuteDiff = preferredMinutes - b.minutes;
-
-        if (aMinuteDiff !== bMinuteDiff) return aMinuteDiff - bMinuteDiff;
-
-        const aLevelDiff = preferredRank - levelRank[a.level];
-        const bLevelDiff = preferredRank - levelRank[b.level];
-
-        return aLevelDiff - bLevelDiff;
-      });
-
-    return candidates[0] ?? suitableWorkouts[0] ?? null;
-  }, [preferredLevel, preferredMinutes, suitableWorkouts]);
-
-  const visibleWorkouts = useMemo(
-    () =>
-      suitableWorkouts.filter((workout) => {
-        const durationMatches =
-          duration === "all" || workout.minutes <= Number(duration);
-        const levelMatches = level === "all" || workout.level === level;
-
-        return durationMatches && levelMatches;
-      }),
-    [duration, level, suitableWorkouts],
   );
 
   const currentWeekHistory = useMemo(() => {
@@ -387,6 +358,145 @@ export default function MovementView({
     0,
   );
   const weeklyDays = new Set(currentWeekHistory.map((entry) => entry.date)).size;
+
+  const recommendedWorkout = useMemo(() => {
+    const preferredWorkoutLevel = initialLevel(preferredLevel);
+    const preferredRank = levelRank[preferredWorkoutLevel];
+
+    const today = new Date().toISOString().slice(0, 10);
+    const todayMinutes = history
+      .filter((entry) => entry.date === today)
+      .reduce((sum, entry) => sum + entry.minutes, 0);
+
+    const weeklyMinutes = currentWeekHistory.reduce(
+      (sum, entry) => sum + entry.minutes,
+      0,
+    );
+
+    const recoverySignal =
+      zenvyraState === "recovery" ||
+      (typeof energyLevel === "number" && energyLevel <= 2) ||
+      (typeof stressLevel === "number" && stressLevel >= 4) ||
+      (typeof moodLevel === "number" && moodLevel <= 2);
+
+    const rebuildSignal =
+      zenvyraState === "rebuild" ||
+      weeklyMinutes < Math.max(20, preferredMinutes * 2);
+
+    let maxMinutes: number = preferredMinutes;
+    let maxRank: number = preferredRank;
+    let preferredFocuses: string[] = [];
+
+    if (recoverySignal) {
+      maxMinutes = Math.min(preferredMinutes, 15);
+      maxRank = 1;
+      preferredFocuses = ["Nyújtás", "Mobilitás", "Törzs"];
+    } else if (rebuildSignal) {
+      maxMinutes = Math.min(preferredMinutes, 20);
+      maxRank = Math.min(preferredRank, 2);
+      preferredFocuses = ["Mobilitás", "Erősítés", "Törzs"];
+    } else if (zenvyraState === "progress") {
+      maxMinutes = preferredMinutes;
+      maxRank = preferredRank;
+      preferredFocuses = ["Erősítés", "Kardió + erősítés", "Kardió"];
+    } else {
+      preferredFocuses = ["Erősítés", "Mobilitás", "Kardió"];
+    }
+
+    const candidates = suitableWorkouts
+      .filter(
+        (workout) =>
+          workout.minutes <= maxMinutes &&
+          levelRank[workout.level] <= maxRank,
+      )
+      .sort((a, b) => {
+        const aFocusRank = preferredFocuses.indexOf(a.focus);
+        const bFocusRank = preferredFocuses.indexOf(b.focus);
+        const normalizedAFocus = aFocusRank === -1 ? 99 : aFocusRank;
+        const normalizedBFocus = bFocusRank === -1 ? 99 : bFocusRank;
+
+        if (normalizedAFocus !== normalizedBFocus) {
+          return normalizedAFocus - normalizedBFocus;
+        }
+
+        const aMinuteDiff = maxMinutes - a.minutes;
+        const bMinuteDiff = maxMinutes - b.minutes;
+
+        if (aMinuteDiff !== bMinuteDiff) return aMinuteDiff - bMinuteDiff;
+
+        const aLevelDiff = maxRank - levelRank[a.level];
+        const bLevelDiff = maxRank - levelRank[b.level];
+
+        return aLevelDiff - bLevelDiff;
+      });
+
+    if (todayMinutes > 0) {
+      const gentleToday = suitableWorkouts
+        .filter(
+          (workout) =>
+            workout.minutes <= 10 &&
+            levelRank[workout.level] <= 1 &&
+            ["Nyújtás", "Mobilitás"].includes(workout.focus),
+        )
+        .sort((a, b) => a.minutes - b.minutes);
+
+      return gentleToday[0] ?? candidates[0] ?? suitableWorkouts[0] ?? null;
+    }
+
+    return candidates[0] ?? suitableWorkouts[0] ?? null;
+  }, [
+    currentWeekHistory,
+    energyLevel,
+    history,
+    moodLevel,
+    preferredLevel,
+    preferredMinutes,
+    stressLevel,
+    suitableWorkouts,
+    zenvyraState,
+  ]);
+
+  const recommendationReason = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const todayMinutes = history
+      .filter((entry) => entry.date === today)
+      .reduce((sum, entry) => sum + entry.minutes, 0);
+
+    if (todayMinutes > 0) {
+      return "Ma már mozogtál, ezért most csak egy könnyű levezetést ajánlok.";
+    }
+
+    if (
+      zenvyraState === "recovery" ||
+      (typeof energyLevel === "number" && energyLevel <= 2) ||
+      (typeof stressLevel === "number" && stressLevel >= 4)
+    ) {
+      return "A mai energiaszintedhez és terhelésedhez most a kíméletesebb mozgás illik.";
+    }
+
+    if (zenvyraState === "rebuild") {
+      return "A heti ritmusodhoz most egy rövid, könnyen teljesíthető mozgás a legjobb következő lépés.";
+    }
+
+    if (zenvyraState === "progress") {
+      return "Jó ritmusban vagy, ezért ma belefér egy kicsit erősebb edzés is.";
+    }
+
+    return "A mai ajánlást az időkeretedhez, edzettségi szintedhez és heti mozgásodhoz igazítottam.";
+  }, [energyLevel, history, stressLevel, zenvyraState]);
+
+  const visibleWorkouts = useMemo(
+    () =>
+      suitableWorkouts.filter((workout) => {
+        const durationMatches =
+          duration === "all" || workout.minutes <= Number(duration);
+        const levelMatches = level === "all" || workout.level === level;
+
+        return durationMatches && levelMatches;
+      }),
+    [duration, level, suitableWorkouts],
+  );
+
 
   async function complete(workout: Workout) {
     if (savingWorkoutId) return;
@@ -445,7 +555,7 @@ export default function MovementView({
           </div>
 
           <h2>{recommendedWorkout.title}</h2>
-          <p>{recommendedWorkout.description}</p>
+          <p>{recommendationReason}</p>
 
           <ol className="workout-steps">
             {recommendedWorkout.steps.map((step) => (
@@ -461,7 +571,7 @@ export default function MovementView({
           >
             {savingWorkoutId === recommendedWorkout.id
               ? "Mentés..."
-              : "Edzés kész ✓"}
+              : "Kezdem"}
           </button>
         </section>
       )}
