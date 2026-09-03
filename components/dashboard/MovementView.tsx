@@ -364,8 +364,29 @@ export default function MovementView({
     [duration, level, suitableWorkouts],
   );
 
-  const weeklyMinutes = history.reduce((sum, entry) => sum + entry.minutes, 0);
-  const weeklyDays = new Set(history.map((entry) => entry.date)).size;
+  const currentWeekHistory = useMemo(() => {
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    const day = startOfWeek.getDay();
+    const daysSinceMonday = day === 0 ? 6 : day - 1;
+
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - daysSinceMonday);
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 7);
+
+    return history.filter((entry) => {
+      const entryDate = new Date(`${entry.date}T00:00:00`);
+      return entryDate >= startOfWeek && entryDate < endOfWeek;
+    });
+  }, [history]);
+
+  const weeklyMinutes = currentWeekHistory.reduce(
+    (sum, entry) => sum + entry.minutes,
+    0,
+  );
+  const weeklyDays = new Set(currentWeekHistory.map((entry) => entry.date)).size;
 
   async function complete(workout: Workout) {
     if (savingWorkoutId) return;
