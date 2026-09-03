@@ -74,6 +74,9 @@ type SavedState = {
   weight: number;
   weightHistory: WeightEntry[];
   movementHistory: MovementEntry[];
+  energyLevel?: "Alacsony" | "Közepes" | "Jó" | null;
+  stressLevel?: "Alacsony" | "Közepes" | "Magas" | null;
+  wellbeingNote?: string;
 };
 
 const STORAGE_KEY = "zenvyra_dashboard_v1";
@@ -83,6 +86,7 @@ const RECIPE_STORAGE_PREFIX = "zenvyra_recipes_v1";
 const RECIPE_HISTORY_STORAGE_PREFIX = "zenvyra_recipe_history_v1";
 const RECIPE_REPEAT_BLOCK_DAYS = 14;
 const ASSISTANT_PLAN_STORAGE_PREFIX = "zenvyra_assistant_plan_v1";
+const SERVICE_PROVIDER_STORAGE_PREFIX = "zenvyra_service_providers_v1";
 
 
 
@@ -156,6 +160,71 @@ function loadRecipeRecommendationHistory(
 
 type AssistantMovementTime = "Délelőtt" | "Délután" | "Este";
 type AssistantStartChoice = "Nyugodt reggeli" | "Rövid mozgás" | "Lassabb indulás";
+
+type ErrandAssistantResult = {
+  service: string;
+  dateText: string;
+  timeText: string;
+  question: string;
+};
+
+type ServiceProvider = {
+  id: string;
+  category: string;
+  name: string;
+  phone: string;
+};
+
+type AppointmentRequest = {
+  id: string;
+  provider_id: string | null;
+  service: string;
+  desired_date_text: string;
+  desired_time_window: string;
+  request_message: string;
+  status: "draft" | "approved" | "sent" | "replied" | "confirmed" | "cancelled";
+  created_at: string;
+  provider_reply: string | null;
+  confirmed_time_text: string | null;
+};
+
+function appointmentStatusLabel(status: AppointmentRequest["status"]) {
+  switch (status) {
+    case "draft":
+      return "Piszkozat";
+    case "approved":
+      return "Jóváhagyva";
+    case "sent":
+      return "Elküldve";
+    case "replied":
+      return "Válasz érkezett";
+    case "confirmed":
+      return "Időpont lefoglalva";
+    case "cancelled":
+      return "Törölve";
+  }
+}
+
+function appointmentStatusTone(status: AppointmentRequest["status"]) {
+  switch (status) {
+    case "confirmed":
+      return { background: "rgba(88, 177, 133, 0.13)", color: "#34745a" };
+    case "sent":
+      return { background: "rgba(255, 181, 92, 0.15)", color: "#9a651f" };
+    case "replied":
+      return { background: "rgba(103, 142, 214, 0.13)", color: "#486aa3" };
+    case "cancelled":
+      return { background: "rgba(110, 110, 120, 0.10)", color: "#66616a" };
+    case "draft":
+      return { background: "rgba(122, 75, 157, 0.08)", color: "#755486" };
+    case "approved":
+    default:
+      return { background: "rgba(154, 112, 219, 0.13)", color: "#6f3f8f" };
+  }
+}
+
+type ErrandProviderChoice = "usual" | "other" | null;
+type ErrandTimeSlot = "13:00–15:00" | "15:00–17:00" | "17:00 után" | "Mindegy";
 
 type StoredAssistantPlan = {
   movementDate?: string;
@@ -469,32 +538,12 @@ function createWeeklyPlan(goal: ZenvyraProfile["goal"]): WeeklyPlanDay[] {
             "Előkészület a következő hétre",
           ];
 
-  const movements = [
-    "20 perc könnyű átmozgatás",
-    "30 perc tempós séta",
-    "20 perc teljes testes erősítés",
-    "Pihenő vagy 10 perc nyújtás",
-    "25 perc lendületes mozgás",
-    "Szabadon választott örömmozgás",
-    "Lassú séta és regenerálódás",
-  ];
-
-  const wellbeing = [
-    "Indíts egy pohár vízzel",
-    "Tarts egy nyugodt ebédszünetet",
-    "Figyelj az energiaszintedre",
-    "Adj magadnak húsz csendes percet",
-    "Vedd észre, mi sikerült a héten",
-    "Legyen időd valamire, amit szeretsz",
-    "Készülj rá nyugodtan a következő hétre",
-  ];
-
   return ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"].map(
     (day, index) => ({
       day,
       food: foodByGoal[index],
-      movement: movements[index],
-      wellbeing: wellbeing[index],
+      movement: "",
+      wellbeing: "",
     }),
   );
 }
@@ -509,6 +558,9 @@ function loadSavedState(): SavedState {
       weight: 68.4,
       weightHistory: [{ date: localDateKey(), weight: 68.4 }],
       movementHistory: [],
+      energyLevel: null,
+      stressLevel: null,
+      wellbeingNote: "",
     };
   }
 
@@ -550,6 +602,20 @@ function loadSavedState(): SavedState {
       movementHistory: Array.isArray(saved.movementHistory)
         ? saved.movementHistory.slice(-50)
         : [],
+      energyLevel:
+        saved.energyLevel === "Alacsony" ||
+        saved.energyLevel === "Közepes" ||
+        saved.energyLevel === "Jó"
+          ? saved.energyLevel
+          : null,
+      stressLevel:
+        saved.stressLevel === "Alacsony" ||
+        saved.stressLevel === "Közepes" ||
+        saved.stressLevel === "Magas"
+          ? saved.stressLevel
+          : null,
+      wellbeingNote:
+        typeof saved.wellbeingNote === "string" ? saved.wellbeingNote : "",
     };
   } catch {
     return {
@@ -560,6 +626,9 @@ function loadSavedState(): SavedState {
       weight: 68.4,
       weightHistory: [{ date: localDateKey(), weight: 68.4 }],
       movementHistory: [],
+      energyLevel: null,
+      stressLevel: null,
+      wellbeingNote: "",
     };
   }
 }
@@ -581,6 +650,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const recipeStorageKey = `${RECIPE_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const recipeHistoryStorageKey = `${RECIPE_HISTORY_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
   const assistantPlanStorageKey = `${ASSISTANT_PLAN_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
+  const serviceProviderStorageKey = `${SERVICE_PROVIDER_STORAGE_PREFIX}_${session?.user.id ?? "guest"}`;
 
   const initialChallenges = useMemo(
     () => loadChallengeProgress(challengeStorageKey),
@@ -597,9 +667,19 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [water, setWater] = useState(initial.water);
   const [movementDone, setMovementDone] = useState(initial.movementDone);
   const [mood, setMood] = useState(initial.mood);
-  const [energyLevel, setEnergyLevel] = useState<"Alacsony" | "Közepes" | "Jó" | null>(null);
-  const [stressLevel, setStressLevel] = useState<"Alacsony" | "Közepes" | "Magas" | null>(null);
-  const [wellbeingNote, setWellbeingNote] = useState("");
+  const [energyLevel, setEnergyLevel] = useState<"Alacsony" | "Közepes" | "Jó" | null>(
+    initial.energyLevel ?? null,
+  );
+  const [stressLevel, setStressLevel] = useState<"Alacsony" | "Közepes" | "Magas" | null>(
+    initial.stressLevel ?? null,
+  );
+  const [wellbeingNote, setWellbeingNote] = useState(initial.wellbeingNote ?? "");
+  const [wellbeingTrend, setWellbeingTrend] = useState<
+    Array<{ logged_on: string; mood: number; energy: number | null; stress: number | null }>
+  >([]);
+  const [waterTrend, setWaterTrend] = useState<
+    Array<{ logged_on: string; amount_ml: number }>
+  >([]);
   const [weight, setWeight] = useState(profile?.current_weight_kg ?? initial.weight);
   const [weightHistory, setWeightHistory] = useState<WeightEntry[]>(
     guestMode ? initial.weightHistory : [],
@@ -678,6 +758,172 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [now, setNow] = useState(() => new Date());
   const [tomorrowStart, setTomorrowStart] =
     useState<AssistantStartChoice | null>(null);
+  const [errandRequest, setErrandRequest] = useState("");
+  const [errandResult, setErrandResult] = useState<ErrandAssistantResult | null>(null);
+  const [serviceProviders, setServiceProviders] = useState<ServiceProvider[]>([]);
+  const [serviceProvidersReady, setServiceProvidersReady] = useState(guestMode || !session);
+  const [serviceProviderMessage, setServiceProviderMessage] = useState("");
+  const [errandProviderChoice, setErrandProviderChoice] = useState<ErrandProviderChoice>(null);
+  const [providerName, setProviderName] = useState("");
+  const [providerPhone, setProviderPhone] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [errandConfirmation, setErrandConfirmation] = useState("");
+  const [errandTimeSlot, setErrandTimeSlot] = useState<ErrandTimeSlot | null>(null);
+  const [errandRequestApproved, setErrandRequestApproved] = useState(false);
+  const [errandRequestSaving, setErrandRequestSaving] = useState(false);
+  const [errandRequestSaveMessage, setErrandRequestSaveMessage] = useState("");
+  const [appointmentRequests, setAppointmentRequests] = useState<AppointmentRequest[]>([]);
+  const [appointmentRequestsLoading, setAppointmentRequestsLoading] = useState(false);
+  const [appointmentRequestsMessage, setAppointmentRequestsMessage] = useState("");
+  const [appointmentStatusSavingId, setAppointmentStatusSavingId] = useState<string | null>(null);
+  const [expandedAppointmentRequests, setExpandedAppointmentRequests] = useState<Record<string, boolean>>({});
+  const [appointmentReplyDrafts, setAppointmentReplyDrafts] = useState<Record<string, string>>({});
+  const [appointmentConfirmedTimeDrafts, setAppointmentConfirmedTimeDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadServiceProviders() {
+      setServiceProviderMessage("");
+
+      if (guestMode || !session?.user) {
+        if (typeof window === "undefined") return;
+
+        try {
+          const saved = JSON.parse(
+            window.localStorage.getItem(serviceProviderStorageKey) ?? "[]",
+          ) as ServiceProvider[];
+
+          if (!active) return;
+          setServiceProviders(Array.isArray(saved) ? saved : []);
+          setServiceProvidersReady(true);
+        } catch {
+          if (!active) return;
+          setServiceProviders([]);
+          setServiceProvidersReady(true);
+        }
+        return;
+      }
+
+      setServiceProvidersReady(false);
+
+      const result = await supabase
+        .from("service_providers")
+        .select("id, category, name, phone")
+        .order("created_at", { ascending: true });
+
+      if (!active) return;
+
+      if (result.error) {
+        setServiceProviders([]);
+        setServiceProviderMessage("A mentett szolgáltatók betöltése nem sikerült.");
+        setServiceProvidersReady(true);
+        return;
+      }
+
+      let providers: ServiceProvider[] = (result.data ?? []).map((row) => ({
+        id: row.id,
+        category: row.category,
+        name: row.name,
+        phone: row.phone ?? "",
+      }));
+
+      // Egyszeri átállás: a korábban localStorage-ban elmentett szolgáltatókat
+      // átvisszük Supabase-be, majd a bejelentkezett felhasználónál töröljük a helyi másolatot.
+      if (typeof window !== "undefined") {
+        try {
+          const localProviders = JSON.parse(
+            window.localStorage.getItem(serviceProviderStorageKey) ?? "[]",
+          ) as ServiceProvider[];
+
+          if (Array.isArray(localProviders) && localProviders.length > 0) {
+            const migrationRows = localProviders
+              .filter((provider) => provider.category && provider.name)
+              .map((provider) => ({
+                user_id: session.user.id,
+                category: provider.category,
+                name: provider.name,
+                phone: provider.phone || null,
+                is_favorite: true,
+                updated_at: new Date().toISOString(),
+              }));
+
+            if (migrationRows.length > 0) {
+              const migrationResult = await supabase
+                .from("service_providers")
+                .insert(migrationRows)
+                .select("id, category, name, phone");
+
+              if (!active) return;
+
+              if (!migrationResult.error) {
+                const migratedProviders = (migrationResult.data ?? []).map((row) => ({
+                  id: row.id,
+                  category: row.category,
+                  name: row.name,
+                  phone: row.phone ?? "",
+                }));
+                providers = [...providers, ...migratedProviders];
+                window.localStorage.removeItem(serviceProviderStorageKey);
+              }
+            }
+          }
+        } catch {
+          // A felhőbetöltés ettől még használható; a hibás helyi adatot egyszerűen figyelmen kívül hagyjuk.
+        }
+      }
+
+      if (!active) return;
+      setServiceProviders(providers);
+      setServiceProvidersReady(true);
+    }
+
+    void loadServiceProviders();
+
+    return () => {
+      active = false;
+    };
+  }, [guestMode, serviceProviderStorageKey, session?.user]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAppointmentRequests() {
+      if (guestMode || !session?.user) {
+        setAppointmentRequests([]);
+        setAppointmentRequestsLoading(false);
+        setAppointmentRequestsMessage("");
+        return;
+      }
+
+      setAppointmentRequestsLoading(true);
+      setAppointmentRequestsMessage("");
+
+      const result = await supabase
+        .from("appointment_requests")
+        .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      if (!active) return;
+
+      setAppointmentRequestsLoading(false);
+
+      if (result.error) {
+        setAppointmentRequests([]);
+        setAppointmentRequestsMessage("Az intézendő kérések betöltése nem sikerült.");
+        return;
+      }
+
+      setAppointmentRequests((result.data ?? []) as AppointmentRequest[]);
+    }
+
+    void loadAppointmentRequests();
+
+    return () => {
+      active = false;
+    };
+  }, [guestMode, session?.user]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -734,6 +980,464 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     });
   }
 
+  function handleErrandRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const request = errandRequest.trim();
+    if (!request) return;
+
+    const normalized = request.toLocaleLowerCase("hu");
+
+    const service = normalized.includes("fodrász")
+      ? "Fodrász"
+      : normalized.includes("körm")
+        ? "Körmös"
+        : normalized.includes("kozmetik")
+          ? "Kozmetikus"
+          : normalized.includes("massz")
+            ? "Masszázs"
+            : normalized.includes("étter")
+              ? "Étterem"
+              : normalized.includes("szerviz")
+                ? "Szerviz"
+                : "Időpont / ügyintézés";
+
+    const weekdays = [
+      ["hétf", "hétfő"],
+      ["kedd", "kedd"],
+      ["szerda", "szerda"],
+      ["csütört", "csütörtök"],
+      ["péntek", "péntek"],
+      ["szombat", "szombat"],
+      ["vasárnap", "vasárnap"],
+    ] as const;
+
+    const weekday = weekdays.find(([needle]) => normalized.includes(needle))?.[1];
+
+    let dateText = "Időpont még nincs megadva";
+    if (normalized.includes("holnap")) {
+      dateText = "Holnap";
+    } else if (normalized.includes("jövő hét") || normalized.includes("jövőheti")) {
+      dateText = weekday ? `Jövő hét · ${weekday}` : "Jövő hét";
+    } else if (weekday) {
+      dateText = weekday.charAt(0).toLocaleUpperCase("hu") + weekday.slice(1);
+    }
+
+    const timeText = normalized.includes("reggel")
+      ? "Reggel"
+      : normalized.includes("délelőtt")
+        ? "Délelőtt"
+        : normalized.includes("délután")
+          ? "Délután"
+          : normalized.includes("este")
+            ? "Este"
+            : "Napszak még nincs megadva";
+
+    const question =
+      service === "Fodrász"
+        ? "A megszokott fodrászodhoz szeretnél menni?"
+        : service === "Szerviz"
+          ? "A megszokott autószervizedhez szeretnél menni?"
+          : service === "Időpont / ügyintézés"
+            ? "Jól értem, hogy ehhez szeretnél időpontot vagy egyeztetést intézni?"
+            : `A megszokott ${service.toLocaleLowerCase("hu")} szolgáltatódhoz szeretnél menni?`;
+
+    setErrandResult({ service, dateText, timeText, question });
+    setErrandProviderChoice(null);
+    setProviderName("");
+    setProviderPhone("");
+    setSelectedProviderId(null);
+    setErrandConfirmation("");
+    setErrandTimeSlot(null);
+    setErrandRequestApproved(false);
+  }
+
+  function chooseErrandProvider(choice: Exclude<ErrandProviderChoice, null>) {
+    setErrandProviderChoice(choice);
+    setSelectedProviderId(null);
+    setErrandConfirmation("");
+    setErrandTimeSlot(null);
+    setErrandRequestApproved(false);
+    setProviderName("");
+    setProviderPhone("");
+  }
+
+  function selectSavedErrandProvider(provider: ServiceProvider) {
+    if (!errandResult) return;
+
+    setErrandProviderChoice("usual");
+    setSelectedProviderId(provider.id);
+    setProviderName(provider.name);
+    setProviderPhone(provider.phone);
+    setErrandConfirmation(
+      `Rendben. ${provider.name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
+    );
+    setErrandTimeSlot(null);
+    setErrandRequestApproved(false);
+  }
+
+  async function saveErrandProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!errandResult) return;
+
+    const name = providerName.trim();
+    const phone = providerPhone.trim();
+    if (!name || !phone) return;
+
+    setServiceProviderMessage("");
+
+    if (guestMode || !session?.user) {
+      const provider: ServiceProvider = {
+        id: `${errandResult.service.toLocaleLowerCase("hu")}-${Date.now()}`,
+        category: errandResult.service,
+        name,
+        phone,
+      };
+
+      const next = [...serviceProviders, provider];
+
+      setServiceProviders(next);
+      setSelectedProviderId(provider.id);
+      window.localStorage.setItem(serviceProviderStorageKey, JSON.stringify(next));
+      setErrandConfirmation(
+        `Rendben. ${name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
+      );
+      return;
+    }
+
+    const result = await supabase
+      .from("service_providers")
+      .insert({
+        user_id: session.user.id,
+        category: errandResult.service,
+        name,
+        phone,
+        is_favorite: true,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, category, name, phone")
+      .single();
+
+    if (result.error || !result.data) {
+      setServiceProviderMessage("A szolgáltató mentése nem sikerült. Próbáld újra.");
+      return;
+    }
+
+    const savedProvider: ServiceProvider = {
+      id: result.data.id,
+      category: result.data.category,
+      name: result.data.name,
+      phone: result.data.phone ?? "",
+    };
+
+    setServiceProviders((current) => [...current, savedProvider]);
+    setSelectedProviderId(savedProvider.id);
+    setErrandConfirmation(
+      `Rendben. ${name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
+    );
+  }
+
+  function chooseErrandTimeSlot(slot: ErrandTimeSlot) {
+    setErrandTimeSlot(slot);
+    setErrandRequestApproved(false);
+    setErrandRequestSaveMessage("");
+  }
+
+  function buildErrandMessage() {
+    if (!errandResult || !errandTimeSlot) return "";
+
+    const date = errandResult.dateText.toLocaleLowerCase("hu");
+    const time = errandTimeSlot === "Mindegy"
+      ? "bármely megfelelő időpontban"
+      : errandTimeSlot === "17:00 után"
+        ? "17 óra után"
+        : `${errandTimeSlot.replace("–", " és ")} között`;
+
+    return `Szia! Szeretnék időpontot kérni ${date}, lehetőleg ${time}. Van esetleg szabad időpontod?`;
+  }
+
+  async function approveErrandRequest() {
+    if (!errandResult || !errandTimeSlot || !providerName.trim()) return;
+
+    setErrandRequestSaving(true);
+    setErrandRequestSaveMessage("");
+
+    if (guestMode || !session) {
+      setErrandRequestApproved(true);
+      setErrandRequestSaving(false);
+      setErrandRequestSaveMessage(
+        "Vendég módban a kérés csak ezen az eszközön használható. Bejelentkezve a Zenvyra a felhőbe is elmenti.",
+      );
+      return;
+    }
+
+    const provider = serviceProviders.find(
+      (item) => item.id === selectedProviderId,
+    ) ?? serviceProviders.find(
+      (item) =>
+        item.category === errandResult.service &&
+        item.name === providerName.trim(),
+    );
+
+    const result = await supabase
+      .from("appointment_requests")
+      .insert({
+        user_id: session.user.id,
+        provider_id: provider?.id ?? null,
+        service: errandResult.service,
+        desired_date_text: errandResult.dateText,
+        desired_time_window: errandTimeSlot,
+        request_message: buildErrandMessage(),
+        status: "approved",
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+      .single();
+
+    setErrandRequestSaving(false);
+
+    if (result.error || !result.data) {
+      setErrandRequestSaveMessage(
+        "A kérés mentése nem sikerült. Próbáld újra.",
+      );
+      return;
+    }
+
+    setAppointmentRequests((current) => [
+      result.data as AppointmentRequest,
+      ...current.filter((item) => item.id !== result.data.id),
+    ].slice(0, 5));
+    setErrandRequestApproved(true);
+    setErrandRequestSaveMessage(
+      "✓ Elmentve a Zenvyra intézendő kérései közé.",
+    );
+  }
+
+  function openAppointmentSms(request: AppointmentRequest) {
+    const provider = serviceProviders.find((item) => item.id === request.provider_id);
+    const phone = provider?.phone?.trim();
+
+    if (!phone) {
+      setAppointmentRequestsMessage(
+        "Ehhez a szolgáltatóhoz nincs mentett telefonszám. Előbb add meg a telefonszámát.",
+      );
+      return;
+    }
+
+    const message = request.request_message?.trim();
+    if (!message) {
+      setAppointmentRequestsMessage(
+        "Ehhez a kéréshez nincs elkészített üzenet.",
+      );
+      return;
+    }
+
+    setAppointmentRequestsMessage("");
+    window.location.href = `sms:${phone}?body=${encodeURIComponent(message)}`;
+  }
+
+  async function advanceAppointmentRequestStatus(request: AppointmentRequest) {
+    if (guestMode || !session?.user) return;
+
+    const nextStatus: Partial<Record<AppointmentRequest["status"], AppointmentRequest["status"]>> = {
+      approved: "sent",
+      sent: "replied",
+      replied: "confirmed",
+    };
+
+    const status = nextStatus[request.status];
+    if (!status) return;
+
+    setAppointmentStatusSavingId(request.id);
+    setAppointmentRequestsMessage("");
+
+    const result = await supabase
+      .from("appointment_requests")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.id)
+      .eq("user_id", session.user.id)
+      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+      .single();
+
+    setAppointmentStatusSavingId(null);
+
+    if (result.error || !result.data) {
+      setAppointmentRequestsMessage("A státusz frissítése nem sikerült. Próbáld újra.");
+      return;
+    }
+
+    setAppointmentRequests((current) =>
+      current.map((item) =>
+        item.id === request.id ? (result.data as AppointmentRequest) : item,
+      ),
+    );
+  }
+
+  async function saveAppointmentReply(request: AppointmentRequest) {
+    if (guestMode || !session?.user) return;
+
+    const reply = (appointmentReplyDrafts[request.id] ?? request.provider_reply ?? "").trim();
+    if (!reply) {
+      setAppointmentRequestsMessage("Írd be röviden, mit válaszolt a szolgáltató.");
+      return;
+    }
+
+    setAppointmentStatusSavingId(request.id);
+    setAppointmentRequestsMessage("");
+
+    const result = await supabase
+      .from("appointment_requests")
+      .update({
+        provider_reply: reply,
+        status: "replied",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.id)
+      .eq("user_id", session.user.id)
+      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+      .single();
+
+    setAppointmentStatusSavingId(null);
+
+    if (result.error || !result.data) {
+      setAppointmentRequestsMessage("A válasz mentése nem sikerült. Próbáld újra.");
+      return;
+    }
+
+    setAppointmentRequests((current) =>
+      current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
+    );
+  }
+
+  function resolveAppointmentStart(request: AppointmentRequest) {
+    const timeMatch = request.confirmed_time_text?.trim().match(/^(\d{1,2})[:.](\d{2})/);
+    if (!timeMatch) return null;
+
+    const hour = Number(timeMatch[1]);
+    const minute = Number(timeMatch[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return null;
+    }
+
+    const reference = new Date(request.created_at);
+    if (Number.isNaN(reference.getTime())) return null;
+
+    const dateText = request.desired_date_text.toLocaleLowerCase("hu");
+    const target = new Date(reference);
+    target.setSeconds(0, 0);
+
+    const weekdayIndexes: Array<[string, number]> = [
+      ["hétfő", 1],
+      ["kedd", 2],
+      ["szerda", 3],
+      ["csütörtök", 4],
+      ["péntek", 5],
+      ["szombat", 6],
+      ["vasárnap", 0],
+    ];
+    const weekday = weekdayIndexes.find(([label]) => dateText.includes(label));
+
+    if (dateText.includes("holnap")) {
+      target.setDate(target.getDate() + 1);
+    } else if (dateText.includes("jövő hét")) {
+      const currentDay = reference.getDay();
+      const daysSinceMonday = currentDay === 0 ? 6 : currentDay - 1;
+      target.setDate(reference.getDate() - daysSinceMonday + 7);
+      if (weekday) {
+        const mondayBasedOffset = weekday[1] === 0 ? 6 : weekday[1] - 1;
+        target.setDate(target.getDate() + mondayBasedOffset);
+      }
+    } else if (weekday) {
+      const currentDay = reference.getDay();
+      let delta = (weekday[1] - currentDay + 7) % 7;
+      if (delta === 0) delta = 0;
+      target.setDate(reference.getDate() + delta);
+    } else {
+      return null;
+    }
+
+    target.setHours(hour, minute, 0, 0);
+    return target;
+  }
+
+  function formatCalendarDate(date: Date) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;
+  }
+
+  function openAppointmentCalendar(request: AppointmentRequest) {
+    const start = resolveAppointmentStart(request);
+    if (!start) {
+      setAppointmentRequestsMessage(
+        "A naptárhoz pontos idő kell, például 16:30, és felismerhető nap, például Holnap vagy Jövő hét · kedd.",
+      );
+      return;
+    }
+
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const provider = serviceProviders.find((item) => item.id === request.provider_id);
+    const title = `${request.service}${provider?.name ? ` · ${provider.name}` : ""}`;
+    const details = [
+      "Zenvyra által előkészített és visszaigazolt időpont.",
+      request.provider_reply ? `Szolgáltató válasza: ${request.provider_reply}` : "",
+    ].filter(Boolean).join("\n\n");
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Budapest";
+
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: title,
+      dates: `${formatCalendarDate(start)}/${formatCalendarDate(end)}`,
+      details,
+      ctz: timezone,
+    });
+
+    setAppointmentRequestsMessage("");
+    window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, "_blank", "noopener,noreferrer");
+  }
+
+  async function confirmAppointmentTime(request: AppointmentRequest) {
+    if (guestMode || !session?.user) return;
+
+    const confirmedTime = (appointmentConfirmedTimeDrafts[request.id] ?? request.confirmed_time_text ?? "").trim();
+    if (!confirmedTime) {
+      setAppointmentRequestsMessage("Add meg a visszaigazolt pontos időpontot, például: 16:30.");
+      return;
+    }
+
+    setAppointmentStatusSavingId(request.id);
+    setAppointmentRequestsMessage("");
+
+    const result = await supabase
+      .from("appointment_requests")
+      .update({
+        confirmed_time_text: confirmedTime,
+        status: "confirmed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.id)
+      .eq("user_id", session.user.id)
+      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+      .single();
+
+    setAppointmentStatusSavingId(null);
+
+    if (result.error || !result.data) {
+      setAppointmentRequestsMessage("Az időpont rögzítése nem sikerült. Próbáld újra.");
+      return;
+    }
+
+    setAppointmentRequests((current) =>
+      current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
+    );
+  }
+
+  const matchingServiceProviders = errandResult
+    ? serviceProviders.filter((provider) => provider.category === errandResult.service)
+    : [];
+
   const todayGreeting =
     currentHour < 11
       ? "Jó reggelt. Hogy aludtál?"
@@ -754,10 +1458,277 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           : currentHour < 20
             ? "Mutatok néhány hozzád illő vacsorát. Te választasz, nem a rendszer dönt helyetted."
             : "Most már nem kell mindent megoldani. Nézzük meg, mi sikerült ma, és mivel szeretnéd könnyebben indítani a holnapot.";
-  const weeklyPlan = useMemo(
-    () => createWeeklyPlan(profile?.goal ?? null),
-    [profile?.goal]
-  );
+  type ZenvyraRhythm =
+    | "recovery"
+    | "rebuild"
+    | "balanced"
+    | "progress";
+
+  const zenvyraState = useMemo(() => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const movementCutoff = new Date(today);
+    movementCutoff.setDate(movementCutoff.getDate() - 13);
+    const movementCutoffKey = localDateKey(movementCutoff);
+
+    const recentMovement = movementHistory.filter(
+      (entry) => entry.date >= movementCutoffKey,
+    );
+    const recentMovementDays = new Set(
+      recentMovement.map((entry) => entry.date),
+    ).size;
+    const recentMovementMinutes = recentMovement.reduce(
+      (sum, entry) => sum + entry.minutes,
+      0,
+    );
+
+    const preferredMinutes = Math.max(10, preferences.workout_minutes);
+    const lowEnergy = energyLevel === "Alacsony";
+    const lowMood = mood <= 2;
+    const highStress = stressLevel === "Magas";
+
+    const wellbeingByDay = new Map<
+      string,
+      { mood: number; energy: number | null; stress: number | null }
+    >();
+
+    wellbeingTrend.forEach((entry) => {
+      wellbeingByDay.set(entry.logged_on, {
+        mood: entry.mood,
+        energy: entry.energy,
+        stress: entry.stress,
+      });
+    });
+
+    const wellbeingDays = Array.from(wellbeingByDay.values());
+
+    const energyValues = wellbeingDays
+      .map((entry) => entry.energy)
+      .filter((value): value is number => value !== null);
+    const moodValues = wellbeingDays.map((entry) => entry.mood);
+    const stressValues = wellbeingDays
+      .map((entry) => entry.stress)
+      .filter((value): value is number => value !== null);
+
+    const average = (values: number[]) =>
+      values.length
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : null;
+
+    const averageEnergy = average(energyValues);
+    const averageMood = average(moodValues);
+    const averageStress = average(stressValues);
+
+    const waterByDay = waterTrend.reduce<Record<string, number>>((days, entry) => {
+      days[entry.logged_on] = (days[entry.logged_on] ?? 0) + entry.amount_ml;
+      return days;
+    }, {});
+    const waterDays = Object.values(waterByDay);
+    const averageWater = average(waterDays);
+
+    const persistentLowEnergy =
+      energyValues.length >= 3 &&
+      averageEnergy !== null &&
+      averageEnergy <= 2.4;
+    const persistentLowMood =
+      moodValues.length >= 3 &&
+      averageMood !== null &&
+      averageMood <= 2.6;
+    const persistentHighStress =
+      stressValues.length >= 3 &&
+      averageStress !== null &&
+      averageStress >= 3.8;
+
+    const hydrationNeedsAttention =
+      waterDays.length >= 3 && averageWater !== null
+        ? averageWater < 1400
+        : water < 1400;
+
+    let rhythm: ZenvyraRhythm = "balanced";
+
+    if (persistentLowEnergy || persistentLowMood || persistentHighStress) {
+      rhythm = "recovery";
+    } else if (lowEnergy || lowMood || highStress) {
+      rhythm = "rebuild";
+    } else if (
+      recentMovementDays <= 2 ||
+      recentMovementMinutes < preferredMinutes * 2
+    ) {
+      rhythm = "rebuild";
+    } else if (
+      recentMovementDays >= 4 &&
+      recentMovementMinutes >= preferredMinutes * 3 &&
+      (averageEnergy === null || averageEnergy >= 3.4)
+    ) {
+      rhythm = "progress";
+    }
+
+    const movementMinutes =
+      rhythm === "recovery"
+        ? Math.min(preferredMinutes, 20)
+        : rhythm === "rebuild"
+          ? Math.min(preferredMinutes, 25)
+          : preferredMinutes;
+
+    const movementIntensity =
+      rhythm === "recovery"
+        ? "kímélő"
+        : rhythm === "rebuild"
+          ? "könnyen tartható"
+          : preferences.fitness_level === "advanced"
+            ? "lendületes"
+            : preferences.fitness_level === "intermediate"
+              ? "közepes intenzitású"
+              : "kímélő";
+
+    const focus =
+      rhythm === "recovery"
+        ? "regeneration"
+        : hydrationNeedsAttention
+          ? "hydration"
+          : rhythm === "rebuild"
+            ? "rhythm"
+            : rhythm === "progress"
+              ? "progress"
+              : "balance";
+
+    return {
+      rhythm,
+      focus,
+      lowEnergy,
+      lowMood,
+      highStress,
+      hydrationNeedsAttention,
+      recentMovementDays,
+      recentMovementMinutes,
+      movementMinutes,
+      movementIntensity,
+      averageEnergy,
+      averageMood,
+      averageStress,
+      averageWater,
+      wellbeingDayCount: wellbeingDays.length,
+      waterDayCount: waterDays.length,
+      persistentLowEnergy,
+      persistentLowMood,
+      persistentHighStress,
+    };
+  }, [
+    movementHistory,
+    preferences.workout_minutes,
+    preferences.fitness_level,
+    energyLevel,
+    mood,
+    stressLevel,
+    water,
+    wellbeingTrend,
+    waterTrend,
+  ]);
+
+
+  const zenvyraTrendExplanation = useMemo(() => {
+    const movementDays = zenvyraState.recentMovementDays;
+
+    if (zenvyraState.persistentLowEnergy) {
+      return "Az elmúlt napokban alacsonyabb volt az energiaszinted, ezért most kímélőbb ritmust javaslok.";
+    }
+
+    if (zenvyraState.persistentHighStress) {
+      return "Az elmúlt napokban magasabb volt a stressz-szinted, ezért most több regenerálódást építek a tervbe.";
+    }
+
+    if (zenvyraState.persistentLowMood) {
+      return "A közérzeted az elmúlt napokban gyengébb volt, ezért most könnyebben teljesíthető lépéseket kapsz.";
+    }
+
+    if (
+      zenvyraState.averageWater !== null &&
+      zenvyraState.waterDayCount >= 3 &&
+      zenvyraState.averageWater < 1400
+    ) {
+      return "Az elmúlt napokban kevés folyadékot rögzítettél, ezért most a hidratálás is előrébb került.";
+    }
+
+    if (zenvyraState.rhythm === "progress" && movementDays >= 4) {
+      return "Jól tartod a mozgási ritmusodat, ezért a rendszer már óvatosan a fejlődés felé tud lépni.";
+    }
+
+    if (zenvyraState.rhythm === "rebuild" && movementDays <= 2) {
+      return "Most még a rendszeres ritmus visszaépítése a fontosabb, nem az intenzitás növelése.";
+    }
+
+    if (
+      zenvyraState.wellbeingDayCount < 3 &&
+      zenvyraState.waterDayCount < 3 &&
+      movementDays < 3
+    ) {
+      return "Még gyűjtöm a mintát. Néhány nap után a javaslatok egyre inkább a saját ritmusodhoz igazodnak.";
+    }
+
+    return "A jelenlegi közérzeted és az elmúlt napok mintája alapján most az egyensúly megtartása a legjobb irány.";
+  }, [zenvyraState]);
+
+
+  const weeklyPlan = useMemo(() => {
+    const basePlan = createWeeklyPlan(profile?.goal ?? null);
+
+    return basePlan.map((item, index) => {
+      const isRecoveryDay = index === 3 || index === 6;
+
+      let movement: string;
+
+      if (zenvyraState.rhythm === "recovery") {
+        movement = isRecoveryDay
+          ? "Pihenőnap vagy 10 perc könnyű nyújtás"
+          : `${zenvyraState.movementMinutes} perc kímélő séta vagy átmozgatás`;
+      } else if (zenvyraState.rhythm === "rebuild") {
+        movement = isRecoveryDay
+          ? "Pihenő vagy 10–15 perc mobilizálás"
+          : `${zenvyraState.movementMinutes} perc könnyen tartható mozgás`;
+      } else {
+        movement = isRecoveryDay
+          ? "Regeneráló nap · könnyű séta vagy nyújtás"
+          : `${zenvyraState.movementMinutes} perc ${zenvyraState.movementIntensity} mozgás`;
+      }
+
+      let wellbeing: string;
+
+      if (zenvyraState.rhythm === "recovery") {
+        wellbeing =
+          index % 2 === 0
+            ? "Tervezz ma egy rövid pihenőt is"
+            : "Hagyj időt a regenerálódásra, és tarts könnyen teljesíthető ritmust";
+      } else if (zenvyraState.hydrationNeedsAttention) {
+        wellbeing =
+          index % 2 === 0
+            ? "Legyen kéznél víz, és kortyolj rendszeresen"
+            : "Kapcsolj egy pohár vizet egy meglévő napi rutinhoz";
+      } else if (zenvyraState.rhythm === "progress") {
+        wellbeing =
+          index % 3 === 0
+            ? "Tarts meg egy nyugodt pihenőidőt is"
+            : index % 3 === 1
+              ? "Vedd észre, mi adott ma energiát"
+              : "A regenerálódás is része a fejlődésnek";
+      } else if (zenvyraState.rhythm === "rebuild") {
+        wellbeing =
+          index % 2 === 0
+            ? "Most a könnyen tartható napi ritmus a fontos"
+            : "Elég egy-két stabil kapaszkodót megtartanod";
+      } else {
+        wellbeing =
+          index % 2 === 0
+            ? "Tarts meg egy nyugodt, jól tartható napi ritmust"
+            : "Figyeld, mi segít megtartani az egyensúlyodat";
+      }
+
+      return {
+        ...item,
+        movement,
+        wellbeing,
+      };
+    });
+  }, [profile?.goal, zenvyraState]);
   const todayPlanIndex = useMemo(() => (new Date().getDay() + 6) % 7, []);
   const recommendedWorkouts = useMemo(() => {
     const levelRank: Record<Workout["level"], number> = {
@@ -811,10 +1782,25 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       weight,
       weightHistory,
       movementHistory,
+      energyLevel,
+      stressLevel,
+      wellbeingNote,
     };
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  }, [guestMode, meals, water, movementDone, mood, weight, weightHistory, movementHistory]);
+  }, [
+    guestMode,
+    meals,
+    water,
+    movementDone,
+    mood,
+    weight,
+    weightHistory,
+    movementHistory,
+    energyLevel,
+    stressLevel,
+    wellbeingNote,
+  ]);
 
   useEffect(() => {
     const snapshot: StoredChallenges = {
@@ -918,8 +1904,15 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       const today = localDateKey();
       const sevenDaysAgo = lastSevenDays()[0].date;
 
-      const [mealsResult, waterResult, weightResult, wellbeingResult, movementResult] =
-        await Promise.all([
+      const [
+        mealsResult,
+        waterResult,
+        weightResult,
+        wellbeingResult,
+        movementResult,
+        wellbeingTrendResult,
+        waterTrendResult,
+      ] = await Promise.all([
           supabase
             .from("meals")
             .select("id, meal_type, food_name, kcal, protein_g, carbs_g, fat_g, consumed")
@@ -937,7 +1930,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             .order("created_at", { ascending: true }),
           supabase
             .from("wellbeing_logs")
-            .select("mood")
+            .select("mood, energy, stress, note")
             .eq("logged_on", today)
             .order("created_at", { ascending: false })
             .limit(1),
@@ -947,6 +1940,16 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             .gte("logged_on", sevenDaysAgo)
             .order("logged_on", { ascending: true })
             .order("created_at", { ascending: true }),
+          supabase
+            .from("wellbeing_logs")
+            .select("logged_on, mood, energy, stress")
+            .gte("logged_on", sevenDaysAgo)
+            .order("logged_on", { ascending: true }),
+          supabase
+            .from("water_logs")
+            .select("logged_on, amount_ml")
+            .gte("logged_on", sevenDaysAgo)
+            .order("logged_on", { ascending: true }),
         ]);
 
       if (!active) return;
@@ -956,7 +1959,9 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         waterResult.error ||
         weightResult.error ||
         wellbeingResult.error ||
-        movementResult.error;
+        movementResult.error ||
+        wellbeingTrendResult.error ||
+        waterTrendResult.error;
 
       if (firstError) {
         setCloudMessage("A felhőadatok betöltése nem sikerült.");
@@ -1002,7 +2007,30 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       }
 
       if (wellbeingResult.data?.[0]) {
-        setMood(Number(wellbeingResult.data[0].mood));
+        const latestWellbeing = wellbeingResult.data[0];
+        setMood(Number(latestWellbeing.mood));
+
+        setEnergyLevel(
+          latestWellbeing.energy === 1
+            ? "Alacsony"
+            : latestWellbeing.energy === 3
+              ? "Közepes"
+              : latestWellbeing.energy === 5
+                ? "Jó"
+                : null,
+        );
+
+        setStressLevel(
+          latestWellbeing.stress === 1
+            ? "Alacsony"
+            : latestWellbeing.stress === 3
+              ? "Közepes"
+              : latestWellbeing.stress === 5
+                ? "Magas"
+                : null,
+        );
+
+        setWellbeingNote(latestWellbeing.note ?? "");
       }
 
       const cloudMovementHistory = (movementResult.data ?? [])
@@ -1015,6 +2043,22 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         }));
       setMovementHistory(cloudMovementHistory);
       setMovementDone(cloudMovementHistory.some((entry) => entry.date === today));
+
+      setWellbeingTrend(
+        (wellbeingTrendResult.data ?? []).map((entry) => ({
+          logged_on: entry.logged_on,
+          mood: Number(entry.mood),
+          energy: entry.energy == null ? null : Number(entry.energy),
+          stress: entry.stress == null ? null : Number(entry.stress),
+        })),
+      );
+
+      setWaterTrend(
+        (waterTrendResult.data ?? []).map((entry) => ({
+          logged_on: entry.logged_on,
+          amount_ml: Number(entry.amount_ml),
+        })),
+      );
 
       setCloudReady(true);
     }
@@ -1939,22 +2983,180 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const isAfternoonPhase = currentHour >= 14 && currentHour < 17;
   const isDinnerPhase = currentHour >= 17 && currentHour < 20;
 
-  const todayGuideText =
-    nextPlannedMeal
-      ? `${nextPlannedMeal.type} következik. Már el van tervezve, csak akkor jelöld elfogyasztottnak, amikor valóban megetted.`
-      : consumedMealCount === 0
-        ? "Kezdd a következő étkezéssel. Nem kell az egész napot egyszerre fejben tartanod."
-        : !movementDone
-          ? `${consumedMealCount} étkezést már rögzítettél. A következő jó lépés egy ${todayWorkout.minutes} perces, hozzád igazított mozgás.`
-          : `${consumedMealCount} étkezést már rögzítettél, és a mai mozgásod is kész. Folytasd a saját ritmusodban — a következetesség többet számít, mint a tökéletesség.`;
+  const calorieRatio = dailyGoal > 0 ? totals.kcal / dailyGoal : 0;
+  const isLateEvening = currentHour >= 20 || currentHour < 6;
+  const isLowWellbeing = zenvyraState.rhythm === "recovery";
+  const needsWater =
+    zenvyraState.hydrationNeedsAttention ||
+    (currentHour >= 17 && water < 1600);
+
+  type TodayNextStepKind = "rest" | "water" | "meal" | "recipe" | "movement" | "done";
+
+  const dayPhase =
+    currentHour < 11
+      ? "morning"
+      : currentHour < 17
+        ? "afternoon"
+        : currentHour < 20
+          ? "evening"
+          : "late";
+
+  const todayNextStep: {
+    kind: TodayNextStepKind;
+    text: string;
+    buttonLabel: string | null;
+  } = (() => {
+    if (isLowWellbeing) {
+      const wellbeingText =
+        dayPhase === "morning"
+          ? "Indulj ma kímélőbben. A közérzeted alapján most egy nyugodtabb reggel többet adhat, mint ha rögtön mindent bepótolnál."
+          : dayPhase === "afternoon"
+            ? "Most érdemes egy kicsit visszavenni a tempóból. A közérzeted alapján egy rövid pihenő jobb következő lépés lehet."
+            : dayPhase === "evening"
+              ? "Az estét már ne terheld túl. A közérzeted alapján inkább válassz valami nyugodt, regeneráló programot."
+              : "Ma inkább a pihenés legyen az első. Most már nem kell semmit behoznod — zárd nyugodtan a napot.";
+
+      return {
+        kind: "rest",
+        text: wellbeingText,
+        buttonLabel: "Közérzet megnyitása →",
+      };
+    }
+
+    if (isLateEvening) {
+      if (water < 1400) {
+        return {
+          kind: "water",
+          text: "Késő van, ezért már nem küldelek edzeni. Ha jól esik, igyál még egy pohár vizet, aztán jöhet a pihenés.",
+          buttonLabel: "Víz hozzáadása →",
+        };
+      }
+
+      if (calorieRatio < 0.7 && consumedMealCount > 0) {
+        return {
+          kind: "meal",
+          text: "A mai energiabeviteled még alacsony. Ha valóban éhes vagy, válassz egy könnyű esti étkezést; ha nem, nem kell csak a számok miatt enned.",
+          buttonLabel: "Mai étkezések →",
+        };
+      }
+
+      return {
+        kind: "done",
+        text: "Mára rendben vagy. Most már a pihenés a következő jó lépés — holnap innen folytatjuk.",
+        buttonLabel: null,
+      };
+    }
+
+    if (needsWater) {
+      const waterText =
+        dayPhase === "morning"
+          ? `A reggelt érdemes folyadékkal is elindítani. Ma eddig ${water} ml vizet rögzítettél — jöhet egy pohár víz.`
+          : dayPhase === "afternoon"
+            ? `Délutánra jól jön egy kis frissítés. Ma eddig ${water} ml vizet rögzítettél — igyál meg most egy pohárral.`
+            : `Mielőtt belekezdesz az estébe, pótolj egy kis folyadékot. Ma eddig ${water} ml vizet rögzítettél.`;
+
+      return {
+        kind: "water",
+        text: waterText,
+        buttonLabel: "Víz hozzáadása →",
+      };
+    }
+
+    if (nextPlannedMeal && (isLunchPhase || isDinnerPhase || calorieRatio < 0.65)) {
+      const mealText =
+        dayPhase === "morning"
+          ? `${nextPlannedMeal.type} lesz a következő étkezésed. Már el van tervezve, így most csak haladj nyugodtan a reggeleddel.`
+          : dayPhase === "afternoon"
+            ? `${nextPlannedMeal.type} következik. Már megvan a terv, csak akkor jelöld elfogyasztottnak, amikor valóban megetted.`
+            : `${nextPlannedMeal.type} következik. Az estére már megvan a következő lépés, nem kell újra kitalálnod.`;
+
+      return {
+        kind: "meal",
+        text: mealText,
+        buttonLabel: "Mai étkezések →",
+      };
+    }
+
+    if (consumedMealCount === 0) {
+      const recipeText =
+        dayPhase === "morning"
+          ? "Indítsd a napot egy hozzád illő étkezéssel. Nem kell az egész napot egyszerre megtervezned."
+          : dayPhase === "afternoon"
+            ? "Még nincs mai étkezés rögzítve. Válassz most egy egyszerű, hozzád illő étkezést, és innen haladunk tovább."
+            : "Ha még nem rögzítettél étkezést, most elég egy könnyen vállalható választás. Nem kell tökéletes napot építeni.";
+
+      return {
+        kind: "recipe",
+        text: recipeText,
+        buttonLabel: dailyRecipeRecommendation
+          ? "Ajánlott étkezés hozzáadása →"
+          : "Receptek megnyitása →",
+      };
+    }
+
+    if (!movementDone && currentHour >= 8 && currentHour < 19) {
+      const movementText =
+        dayPhase === "morning"
+          ? `Ha jól esne egy kis lendület, most beleférhet egy ${zenvyraState.movementMinutes} perces, hozzád igazított mozgás.`
+          : dayPhase === "afternoon"
+            ? `${consumedMealCount} étkezést már rögzítettél. Egy ${zenvyraState.movementMinutes} perces mozgás most jó kis váltás lehet a nap közepén.`
+            : `Még belefér egy könnyű ${zenvyraState.movementMinutes} perces mozgás, de csak akkor, ha van hozzá energiád.`;
+
+      return {
+        kind: "movement",
+        text: movementText,
+        buttonLabel: "Mozgás megnyitása →",
+      };
+    }
+
+    if (nextPlannedMeal) {
+      const plannedMealText =
+        dayPhase === "morning"
+          ? `${nextPlannedMeal.type} lesz a következő tervezett étkezésed. Addig nincs sürgős teendőd.`
+          : dayPhase === "afternoon"
+            ? `${nextPlannedMeal.type} már meg van tervezve. Most nyugodtan folytathatod a napodat.`
+            : `${nextPlannedMeal.type} még hátravan, de nincs vele teendőd addig, amíg tényleg el nem jön az ideje.`;
+
+      return {
+        kind: "meal",
+        text: plannedMealText,
+        buttonLabel: "Mai étkezések →",
+      };
+    }
+
+    const doneText =
+      dayPhase === "morning"
+        ? "Jól indul a napod. Most nincs sürgős teendő — haladj tovább a saját ritmusodban."
+        : dayPhase === "afternoon"
+          ? "A mai fő dolgok rendben vannak. Nem kell mindig új feladatot keresni — most elég, ha tartod a ritmust."
+          : "Szépen áll a napod. Az estére már nem kell semmit behoznod — innen jöhet a nyugodtabb lezárás.";
+
+    return {
+      kind: "done",
+      text: doneText,
+      buttonLabel: null,
+    };
+  })();
+
+  const todayGuideText = todayNextStep.text;
 
   function openTodayNextStep() {
-    if (nextPlannedMeal) {
+    if (todayNextStep.kind === "rest") {
+      setView("wellbeing");
+      return;
+    }
+
+    if (todayNextStep.kind === "water") {
+      setWater((current) => Math.min(5000, current + 250));
+      return;
+    }
+
+    if (todayNextStep.kind === "meal") {
       setView("meals");
       return;
     }
 
-    if (consumedMealCount === 0) {
+    if (todayNextStep.kind === "recipe") {
       if (dailyRecipeRecommendation) {
         void addRecipeToMeals(
           dailyRecipeRecommendation.recipe,
@@ -1966,27 +3168,107 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       return;
     }
 
-    if (!movementDone) {
+    if (todayNextStep.kind === "movement") {
       setView("movement");
     }
   }
 
-  const todayNextButtonLabel =
-    nextPlannedMeal
-      ? "Mai étkezések →"
-      : consumedMealCount === 0
-        ? dailyRecipeRecommendation
-          ? "Ajánlott étkezés hozzáadása →"
-          : "Receptek megnyitása →"
-        : !movementDone
-          ? "Mozgás megnyitása →"
-          : null;
+  const todayNextButtonLabel = todayNextStep.buttonLabel;
 
-  // A következő napi asszisztens-kártyához előkészített tartalom és művelet.
-  void todayGuideText;
-  void openTodayNextStep;
-  void todayNextButtonLabel;
+  const eveningSummaryText = (() => {
+    const mealCount = meals.filter((meal) => meal.consumed).length;
+    const parts: string[] = [];
 
+    if (mealCount > 0) {
+      parts.push(`${mealCount} étkezést rögzítettél`);
+    }
+
+    if (water > 0) {
+      parts.push(`${water} ml vizet ittál`);
+    }
+
+    if (movementDone) {
+      parts.push("a mai mozgásod is megvolt");
+    }
+
+    if (parts.length >= 2) {
+      const last = parts.pop();
+      const recap = `${parts.join(", ")} és ${last}.`;
+
+      if (water < 1400) {
+        return `${recap} Ma kevés folyadékot rögzítettél; holnap egy pohár vízzel könnyebb lehet elindítani a napot.`;
+      }
+
+      if (!movementDone && currentHour >= 20) {
+        return `${recap} Mára nem kell már bepótolnod semmit. Holnap egy rövid, könnyű mozgással újra felveheted a ritmust.`;
+      }
+
+      if (calorieRatio < 0.7 && mealCount > 0) {
+        return `${recap} A mai energiabeviteled a célodhoz képest alacsonyabban maradt. Holnap figyelj arra, hogy legyenek rendes, tápláló étkezéseid.`;
+      }
+
+      return `${recap} Szépen összeállt a napod. Holnap elég innen továbbvinni azt, ami ma már működött.`;
+    }
+
+    if (parts.length === 1) {
+      return `${parts[0]}. Ez is számít. Nem kell este mindent bepótolnod — válassz inkább egy könnyű kapaszkodót holnap reggelre.`;
+    }
+
+    return "Nem kell este bepótolni mindent. Zárd le nyugodtan a napot, és válassz egy könnyű kapaszkodót holnap reggelre.";
+  })();
+
+
+  const zenvyraNutrition = useMemo(() => {
+    const consumedCount = meals.filter((meal) => meal.consumed).length;
+    const hasPlannedMeal = meals.some((meal) => !meal.consumed);
+    const energyRatio = dailyGoal > 0 ? totals.kcal / dailyGoal : 0;
+
+    if (zenvyraState.rhythm === "recovery") {
+      return {
+        title: "Most az egyszerű, tápláló ritmus a fontos",
+        text:
+          "Regenerálóbb időszakban nem a tökéletes számok a célok. Inkább legyenek kiszámítható, tápláló étkezéseid, és ne próbáld este bepótolni az egész napot.",
+        recipeText:
+          "Most az egyszerűbb, jól összeállítható recepteket érdemes előrevenni, amelyek könnyen beilleszthetők a napodba.",
+      };
+    }
+
+    if (zenvyraState.rhythm === "rebuild") {
+      return {
+        title: "Először az étkezési ritmust építjük",
+        text:
+          consumedCount === 0
+            ? "Ma még nincs elfogyasztott étkezés rögzítve. Most egy könnyen tartható következő étkezés többet ér, mint az egész nap előre tökéletesre tervezése."
+            : hasPlannedMeal
+              ? "Van már következő tervezett étkezésed. Most a rendszeresség a fontos: haladj vele tovább a saját napirended szerint."
+              : "A mai étkezésekből már kialakul egy ritmus. A következő lépés az, hogy ezt több napon át könnyen tarthatóvá tegyük.",
+        recipeText:
+          "A recepteknél most azt érdemes előnyben részesíteni, amit reálisan el is készítesz és rendszeresen be tudsz illeszteni.",
+      };
+    }
+
+    if (zenvyraState.rhythm === "progress") {
+      return {
+        title: "A ritmus már stabilabb, jöhet a finomhangolás",
+        text:
+          energyRatio < 0.7
+            ? "A rendszerességed jó irányban halad, de a mai energiabeviteled még alacsonyabb a célodhoz képest. A következő étkezés legyen rendes és tápláló."
+            : "A napi ritmusod stabilabb, ezért most már jobban tudunk figyelni arra is, hogy az étkezések a kalória- és makrócéljaidhoz illeszkedjenek.",
+        recipeText:
+          "Most már a receptválasztásnál a tarthatóság mellett erősebben számít a napi energia- és makrócélhoz való illeszkedés is.",
+      };
+    }
+
+    return {
+      title: "Tartsuk meg az egyensúlyt",
+      text:
+        energyRatio > 1.15
+          ? "A mai beviteled már a napi cél fölé került. Nem kell kompenzálnod vagy kihagynod étkezést — a következő választás legyen egyszerűen a szokásos ritmusod része."
+          : "A jelenlegi állapotodnál a rendszeresség és a céljaid közötti egyensúly a legjobb irány. Nem kell minden étkezést külön optimalizálni.",
+      recipeText:
+        "A recepteknél most azokat a választásokat érdemes megtartani, amelyek egyszerre illenek a céljaidhoz és a hétköznapi ritmusodhoz.",
+    };
+  }, [meals, dailyGoal, totals.kcal, zenvyraState]);
   const caloriesPercent = Math.min(
     100,
     Math.round((totals.kcal / dailyGoal) * 100)
@@ -2050,19 +3332,86 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setWater((current) => Math.min(4000, current + amount));
   }
 
-  async function saveMood(value: number) {
-    setMood(value);
+  function energyToNumber(value: "Alacsony" | "Közepes" | "Jó" | null) {
+    return value === "Alacsony" ? 1 : value === "Közepes" ? 3 : value === "Jó" ? 5 : null;
+  }
+
+  function stressToNumber(value: "Alacsony" | "Közepes" | "Magas" | null) {
+    return value === "Alacsony" ? 1 : value === "Közepes" ? 3 : value === "Magas" ? 5 : null;
+  }
+
+  async function saveWellbeingSnapshot(next: {
+    mood?: number;
+    energyLevel?: "Alacsony" | "Közepes" | "Jó" | null;
+    stressLevel?: "Alacsony" | "Közepes" | "Magas" | null;
+    note?: string;
+  }) {
+    const nextMood = next.mood ?? mood;
+    const nextEnergy =
+      next.energyLevel !== undefined ? next.energyLevel : energyLevel;
+    const nextStress =
+      next.stressLevel !== undefined ? next.stressLevel : stressLevel;
+    const nextNote = next.note !== undefined ? next.note : wellbeingNote;
+
+    setMood(nextMood);
+    setEnergyLevel(nextEnergy);
+    setStressLevel(nextStress);
+    setWellbeingNote(nextNote);
 
     if (guestMode || !session?.user) return;
 
-    const { error } = await supabase.from("wellbeing_logs").insert({
-      user_id: session.user.id,
-      mood: value,
-    });
+    const today = localDateKey();
 
-    if (error) {
+    const existing = await supabase
+      .from("wellbeing_logs")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .eq("logged_on", today)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing.error) {
       setCloudMessage("A közérzet mentése nem sikerült.");
+      return;
     }
+
+    const payload = {
+      mood: nextMood,
+      energy: energyToNumber(nextEnergy),
+      stress: stressToNumber(nextStress),
+      note: nextNote.trim() || null,
+    };
+
+    const result = existing.data?.id
+      ? await supabase
+          .from("wellbeing_logs")
+          .update(payload)
+          .eq("id", existing.data.id)
+      : await supabase.from("wellbeing_logs").insert({
+          user_id: session.user.id,
+          logged_on: today,
+          ...payload,
+        });
+
+    if (result.error) {
+      setCloudMessage("A közérzet mentése nem sikerült.");
+      return;
+    }
+
+    setCloudMessage("");
+  }
+
+  async function saveMood(value: number) {
+    await saveWellbeingSnapshot({ mood: value });
+  }
+
+  async function saveEnergyLevel(value: "Alacsony" | "Közepes" | "Jó") {
+    await saveWellbeingSnapshot({ energyLevel: value });
+  }
+
+  async function saveStressLevel(value: "Alacsony" | "Közepes" | "Magas") {
+    await saveWellbeingSnapshot({ stressLevel: value });
   }
 
   async function saveMovement(completed: boolean) {
@@ -2500,6 +3849,95 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
         {view === "today" && (
           <>
+            <section
+              className="dashboard-card"
+              aria-labelledby="today-next-step-title"
+              style={{
+                padding: "18px 20px",
+                marginBottom: 20,
+                background:
+                  "linear-gradient(135deg, rgba(255,248,249,0.98), rgba(247,239,252,0.96))",
+                border: "1px solid rgba(122,75,157,0.10)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flex: "1 1 480px" }}>
+                  <span className="card-kicker">✦ ZENVYRA · MOST EZT JAVASLOM</span>
+                  <h2
+                    id="today-next-step-title"
+                    style={{
+                      margin: "6px 0 5px",
+                      fontSize: "clamp(1.18rem, 2.4vw, 1.48rem)",
+                    }}
+                  >
+                    A következő jó lépés
+                  </h2>
+                  <p style={{ margin: 0, maxWidth: 780, lineHeight: 1.5 }}>
+                    {todayGuideText}
+                  </p>
+
+                  <div
+                    style={{
+                      marginTop: 12,
+                      paddingTop: 10,
+                      borderTop: "1px solid rgba(122,75,157,0.10)",
+                      maxWidth: 780,
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "block",
+                        marginBottom: 3,
+                        fontSize: "0.72rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "rgba(91,61,111,0.72)",
+                      }}
+                    >
+                      Miért ezt javaslom?
+                    </span>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "0.92rem",
+                        lineHeight: 1.45,
+                        color: "rgba(63,46,72,0.82)",
+                      }}
+                    >
+                      {zenvyraTrendExplanation}
+                    </p>
+                  </div>
+                </div>
+
+                {todayNextButtonLabel && (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={openTodayNextStep}
+                    style={{
+                      appearance: "none",
+                      minWidth: 190,
+                      border: "none",
+                      borderRadius: 14,
+                      padding: "12px 18px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {todayNextButtonLabel}
+                  </button>
+                )}
+              </div>
+            </section>
+
             {currentHour < 11 ? (
               <section
                 className="dashboard-card"
@@ -2806,9 +4244,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     : "Ez a nap is számít."}
                 </h2>
                 <p style={{ margin: "0 0 20px", maxWidth: 760 }}>
-                  {movementDone && meals.some((meal) => meal.consumed)
-                    ? "Étkeztél, mozogtál, tettél magadért. Nem a tökéletesség számít, hanem hogy újra és újra visszatalálj magadhoz."
-                    : "Nem kell este bepótolni mindent. Zárd le nyugodtan a napot, és válassz egy könnyű kapaszkodót holnap reggelre."}
+                  {eveningSummaryText}
                 </p>
 
                 <div style={{ paddingTop: 18, borderTop: "1px solid rgba(95, 61, 130, 0.10)" }}>
@@ -2856,6 +4292,693 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 </div>
               </section>
             )}
+
+            <section
+              className="dashboard-card"
+              aria-labelledby="errand-assistant-title"
+              style={{
+                padding: "26px",
+                marginBottom: 20,
+                overflow: "hidden",
+                position: "relative",
+                background:
+                  "linear-gradient(135deg, rgba(255,248,251,0.99), rgba(244,236,251,0.98))",
+                border: "1px solid rgba(122, 75, 157, 0.12)",
+              }}
+            >
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  width: 170,
+                  height: 170,
+                  borderRadius: "50%",
+                  right: -55,
+                  top: -75,
+                  background: "rgba(255,126,139,0.10)",
+                  filter: "blur(2px)",
+                }}
+              />
+
+              <div style={{ position: "relative" }}>
+                <span className="card-kicker">✦ ZENVYRA ASSZISZTENS</span>
+                <h2
+                  id="errand-assistant-title"
+                  style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}
+                >
+                  Intézd el nekem
+                </h2>
+                <p style={{ margin: "0 0 18px", maxWidth: 760 }}>
+                  Mondd el röviden, mit szeretnél elintézni. Első lépésként összerakom belőle a kérést,
+                  hogy később ebből valódi időpont-egyeztetés lehessen.
+                </p>
+
+                <form onSubmit={handleErrandRequest}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "stretch",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={errandRequest}
+                      onChange={(event) => setErrandRequest(event.target.value)}
+                      placeholder="Pl. Jövő hét kedden délután szeretnék fodrászhoz menni."
+                      aria-label="Mit intézzen el a Zenvyra?"
+                      style={{
+                        flex: "1 1 420px",
+                        minWidth: 0,
+                        border: "1px solid rgba(122, 75, 157, 0.18)",
+                        borderRadius: 16,
+                        padding: "14px 16px",
+                        background: "rgba(255,255,255,0.88)",
+                        color: "inherit",
+                        font: "inherit",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="primary-button"
+                      disabled={!errandRequest.trim()}
+                      style={{
+                        minWidth: 170,
+                        border: "none",
+                        borderRadius: 18,
+                        padding: "14px 22px",
+                        background: errandRequest.trim()
+                          ? "linear-gradient(135deg, #ff7e8b 0%, #9a70db 100%)"
+                          : "linear-gradient(135deg, rgba(255,126,139,0.36), rgba(154,112,219,0.36))",
+                        color: "#fff",
+                        fontWeight: 900,
+                        fontSize: "0.98rem",
+                        letterSpacing: "0.01em",
+                        cursor: errandRequest.trim() ? "pointer" : "not-allowed",
+                        boxShadow: errandRequest.trim()
+                          ? "0 12px 28px rgba(122,75,157,0.24)"
+                          : "none",
+                        transition: "transform .18s ease, box-shadow .18s ease, opacity .18s ease",
+                        opacity: errandRequest.trim() ? 1 : 0.72,
+                      }}
+                    >
+                      ✦ Intézd el →
+                    </button>
+                  </div>
+                </form>
+
+                {errandResult && (
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: "18px",
+                      borderRadius: 18,
+                      background: "rgba(255,255,255,0.76)",
+                      border: "1px solid rgba(122, 75, 157, 0.12)",
+                    }}
+                  >
+                    <span className="card-kicker">ÉRTETTEM</span>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                        gap: 10,
+                        marginTop: 10,
+                      }}
+                    >
+                      {[
+                        ["Mit", errandResult.service],
+                        ["Mikor", errandResult.dateText],
+                        ["Napszak", errandResult.timeText],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: 14,
+                            background: "rgba(247,238,249,0.72)",
+                          }}
+                        >
+                          <span style={{ display: "block", fontSize: ".78rem", opacity: 0.7 }}>
+                            {label}
+                          </span>
+                          <strong style={{ display: "block", marginTop: 3 }}>{value}</strong>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p style={{ margin: "16px 0 0", fontWeight: 800 }}>
+                      {errandResult.question}
+                    </p>
+
+                    {!serviceProvidersReady && (
+                      <p style={{ margin: "8px 0 0", opacity: 0.72, fontSize: ".92rem" }}>
+                        Mentett szolgáltatók betöltése…
+                      </p>
+                    )}
+
+                    {serviceProviderMessage && (
+                      <p style={{ margin: "8px 0 0", color: "#9a3d5f", fontWeight: 700 }}>
+                        {serviceProviderMessage}
+                      </p>
+                    )}
+
+                    {!errandProviderChoice && serviceProvidersReady && (
+                      <div style={{ marginTop: 14 }}>
+                        {matchingServiceProviders.length > 0 ? (
+                          <>
+                            <p style={{ margin: "0 0 10px", fontWeight: 800 }}>
+                              Válassz a mentett szolgáltatóid közül:
+                            </p>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {matchingServiceProviders.map((provider) => (
+                                <button
+                                  key={provider.id}
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => selectSavedErrandProvider(provider)}
+                                  style={{
+                                    borderRadius: 16,
+                                    padding: "11px 16px",
+                                    border: "1px solid rgba(122,75,157,0.18)",
+                                    background: "linear-gradient(135deg, rgba(255,126,139,0.13), rgba(154,112,219,0.16))",
+                                    color: "#6f3f8f",
+                                    fontWeight: 850,
+                                  }}
+                                >
+                                  {provider.name}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => chooseErrandProvider("other")}
+                              style={{
+                                marginTop: 10,
+                                borderRadius: 16,
+                                padding: "11px 16px",
+                                border: "1px solid rgba(122,75,157,0.16)",
+                                background: "rgba(255,255,255,0.86)",
+                                color: "#6f3f8f",
+                                fontWeight: 800,
+                              }}
+                            >
+                              + Új szolgáltató hozzáadása
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => chooseErrandProvider("usual")}
+                            style={{
+                              borderRadius: 16,
+                              padding: "11px 16px",
+                              border: "1px solid rgba(122,75,157,0.18)",
+                              background: "linear-gradient(135deg, rgba(255,126,139,0.13), rgba(154,112,219,0.16))",
+                              color: "#6f3f8f",
+                              fontWeight: 850,
+                            }}
+                          >
+                            + Szolgáltató megadása
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {errandProviderChoice && !errandConfirmation && (
+                      <form onSubmit={saveErrandProvider} style={{ marginTop: 14 }}>
+                        <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+                          {matchingServiceProviders.length === 0
+                            ? `Még nincs mentett ${errandResult.service.toLocaleLowerCase("hu")} szolgáltatód. Add meg egyszer, és legközelebb már választható lesz.`
+                            : `Add meg az új ${errandResult.service.toLocaleLowerCase("hu")} szolgáltatót. A korábban mentettek megmaradnak.`}
+                        </p>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                          <input
+                            className="text-input"
+                            value={providerName}
+                            onChange={(event) => setProviderName(event.target.value)}
+                            placeholder="Szolgáltató neve"
+                            required
+                          />
+                          <input
+                            className="text-input"
+                            value={providerPhone}
+                            onChange={(event) => setProviderPhone(event.target.value)}
+                            placeholder="Telefonszám, pl. +36 30 123 4567"
+                            type="tel"
+                            required
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="secondary-button"
+                          style={{
+                            marginTop: 12,
+                            borderRadius: 16,
+                            padding: "11px 17px",
+                            border: "1px solid rgba(122,75,157,0.18)",
+                            background: "linear-gradient(135deg, rgba(255,126,139,0.12), rgba(154,112,219,0.17))",
+                            color: "#6f3f8f",
+                            fontWeight: 850,
+                          }}
+                        >
+                          Szolgáltató mentése és kiválasztása
+                        </button>
+                      </form>
+                    )}
+
+                    {errandConfirmation && (
+                      <div style={{ marginTop: 14, padding: "14px 16px", borderRadius: 14, background: "rgba(247,238,249,0.72)" }}>
+                        <strong>✓ Szolgáltató kiválasztva</strong>
+                        <p style={{ margin: "6px 0 0" }}>{errandConfirmation}</p>
+
+                        <p style={{ margin: "16px 0 8px", fontWeight: 800 }}>Mikor lenne jó?</p>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {(["13:00–15:00", "15:00–17:00", "17:00 után", "Mindegy"] as ErrandTimeSlot[]).map((slot) => (
+                            <button
+                              key={slot}
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => chooseErrandTimeSlot(slot)}
+                              style={{
+                                borderRadius: 15,
+                                padding: "10px 14px",
+                                border: errandTimeSlot === slot
+                                  ? "1px solid rgba(122,75,157,0.34)"
+                                  : "1px solid rgba(122,75,157,0.14)",
+                                background: errandTimeSlot === slot
+                                  ? "linear-gradient(135deg, rgba(255,126,139,0.16), rgba(154,112,219,0.20))"
+                                  : "rgba(255,255,255,0.86)",
+                                color: "#6f3f8f",
+                                fontWeight: errandTimeSlot === slot ? 900 : 800,
+                                boxShadow: errandTimeSlot === slot
+                                  ? "0 7px 18px rgba(111,63,143,0.10)"
+                                  : "none",
+                              }}
+                            >
+                              {errandTimeSlot === slot ? `${slot} ✓` : slot}
+                            </button>
+                          ))}
+                        </div>
+
+                        {errandTimeSlot && (
+                          <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 14, background: "rgba(255,255,255,0.82)", border: "1px solid rgba(122,75,157,0.12)" }}>
+                            <strong>Időpontkérés előkészítve</strong>
+                            <p style={{ margin: "8px 0 0" }}><strong>Szolgáltató:</strong> {providerName}</p>
+                            <p style={{ margin: "4px 0 0" }}><strong>Nap:</strong> {errandResult.dateText}</p>
+                            <p style={{ margin: "4px 0 0" }}><strong>Idősáv:</strong> {errandTimeSlot}</p>
+                            <p style={{ margin: "12px 0 0", lineHeight: 1.55 }}>„{buildErrandMessage()}”</p>
+
+                            {!errandRequestApproved ? (
+                              <button
+                                type="button"
+                                className="primary-button"
+                                style={{
+                                  marginTop: 14,
+                                  border: "none",
+                                  borderRadius: 17,
+                                  padding: "12px 18px",
+                                  background: "linear-gradient(135deg, #ff7e8b 0%, #9a70db 100%)",
+                                  color: "#fff",
+                                  fontWeight: 900,
+                                  boxShadow: "0 10px 24px rgba(122,75,157,0.20)",
+                                  cursor: "pointer",
+                                }}
+                                onClick={() => void approveErrandRequest()}
+                                disabled={errandRequestSaving}
+                              >
+                                {errandRequestSaving ? "Mentés…" : "✓ Rendben, ezt szeretném"}
+                              </button>
+                            ) : (
+                              <div
+                                style={{
+                                  marginTop: 12,
+                                  padding: "10px 12px",
+                                  borderRadius: 13,
+                                  background: "rgba(122,75,157,0.07)",
+                                  color: "#6f3f8f",
+                                  fontWeight: 800,
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                ✓ Kérés rögzítve. Az aktuális állapotát lent, a „Folyamatban lévő kérések” résznél követheted.
+                              </div>
+                            )}
+                            {!errandRequestApproved && errandRequestSaveMessage && (
+                              <p style={{ margin: "8px 0 0", fontWeight: 700, color: "#6f3f8f" }}>
+                                {errandRequestSaveMessage}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        <p style={{ margin: "10px 0 0", opacity: 0.72, fontSize: ".9rem" }}>
+                          Most még nem küldünk üzenetet és nem indítunk hívást.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {!guestMode && session?.user && (
+                <div
+                  style={{
+                    marginTop: 18,
+                    padding: "18px 18px 16px",
+                    borderRadius: 20,
+                    border: "1px solid rgba(122,75,157,0.12)",
+                    background: "linear-gradient(145deg, rgba(255,255,255,0.86), rgba(248,241,250,0.88))",
+                    boxShadow: "0 12px 32px rgba(111,63,143,0.07)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ color: "#8b5aa7", fontSize: ".78rem", fontWeight: 900, letterSpacing: ".08em" }}>
+                        ✦ ZENVYRA INTÉZI
+                      </div>
+                      <h3 style={{ margin: "5px 0 0", color: "#4e355e", fontSize: "1.08rem" }}>
+                        Folyamatban lévő kérések
+                      </h3>
+                    </div>
+                    {appointmentRequests.length > 0 && (
+                      <span style={{ fontSize: ".82rem", fontWeight: 800, color: "#7a5a86" }}>
+                        Előzmények · {appointmentRequests.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {appointmentRequestsLoading ? (
+                    <p style={{ margin: "14px 0 0", color: "#78687f", fontWeight: 700 }}>Betöltés…</p>
+                  ) : appointmentRequestsMessage ? (
+                    <p style={{ margin: "14px 0 0", color: "#8b5a70", fontWeight: 700 }}>
+                      {appointmentRequestsMessage}
+                    </p>
+                  ) : appointmentRequests.length === 0 ? (
+                    <div style={{ marginTop: 14, padding: "14px 15px", borderRadius: 16, background: "rgba(255,255,255,0.72)" }}>
+                      <strong style={{ color: "#60416f" }}>Még nincs aktív kérésed.</strong>
+                      <p style={{ margin: "5px 0 0", color: "#78687f", lineHeight: 1.5 }}>
+                        Ha jóváhagysz egy időpontkérést, itt fogod látni, hol tart az ügyintézés.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+                      {appointmentRequests.map((request) => {
+                        const provider = serviceProviders.find((item) => item.id === request.provider_id);
+                        const tone = appointmentStatusTone(request.status);
+                        const defaultOpenRequestId = appointmentRequests.find(
+                          (item) => !["confirmed", "cancelled", "draft"].includes(item.status),
+                        )?.id;
+                        const isOpen = expandedAppointmentRequests[request.id] ?? request.id === defaultOpenRequestId;
+                        const requestDateLine =
+                          request.status === "confirmed" && request.confirmed_time_text
+                            ? `${request.desired_date_text} · ${request.confirmed_time_text}`
+                            : `${request.desired_date_text} · ${request.desired_time_window}`;
+
+                        return (
+                          <div
+                            key={request.id}
+                            style={{
+                              padding: "13px 14px",
+                              borderRadius: 16,
+                              border: "1px solid rgba(122,75,157,0.10)",
+                              background: "rgba(255,255,255,0.78)",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedAppointmentRequests((current) => ({
+                                  ...current,
+                                  [request.id]: !isOpen,
+                                }))
+                              }
+                              aria-expanded={isOpen}
+                              style={{
+                                width: "100%",
+                                padding: 0,
+                                border: 0,
+                                background: "transparent",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                flexWrap: "wrap",
+                                textAlign: "left",
+                                cursor: "pointer",
+                                font: "inherit",
+                              }}
+                            >
+                              <div>
+                                <strong style={{ color: "#553962" }}>
+                                  {provider?.name ? `${provider.name} · ` : ""}{request.service}
+                                </strong>
+                                <p style={{ margin: "4px 0 0", color: "#75647b", fontSize: ".92rem" }}>
+                                  {requestDateLine}
+                                </p>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 999,
+                                    background: tone.background,
+                                    color: tone.color,
+                                    fontSize: ".78rem",
+                                    fontWeight: 900,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {appointmentStatusLabel(request.status)}
+                                </span>
+                                <span
+                                  aria-hidden="true"
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: "50%",
+                                    display: "grid",
+                                    placeItems: "center",
+                                    background: "rgba(122,75,157,0.07)",
+                                    color: "#6f3f8f",
+                                    fontWeight: 900,
+                                    transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+                                    transition: "transform 160ms ease",
+                                  }}
+                                >
+                                  ›
+                                </span>
+                              </div>
+                            </button>
+
+                            {isOpen && request.status !== "cancelled" && request.status !== "draft" && (
+                              <div style={{ marginTop: 12 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+                                  {[
+                                    ["approved", "Jóváhagyva"],
+                                    ["sent", "Elküldve"],
+                                    ["replied", "Válasz"],
+                                    ["confirmed", "Lefoglalva"],
+                                  ].map(([step, label], index) => {
+                                    const order = ["approved", "sent", "replied", "confirmed"];
+                                    const currentIndex = order.indexOf(request.status);
+                                    const completed = index < currentIndex;
+                                    const current = index === currentIndex;
+                                    const reached = index <= currentIndex;
+
+                                    return (
+                                      <div key={step} style={{ minWidth: 0, textAlign: "center" }}>
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 5,
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              height: 4,
+                                              flex: 1,
+                                              borderRadius: 999,
+                                              background: reached
+                                                ? "linear-gradient(90deg, #ff8d96, #9a70db)"
+                                                : "rgba(122,75,157,0.10)",
+                                            }}
+                                          />
+                                          <div
+                                            aria-hidden="true"
+                                            style={{
+                                              width: 24,
+                                              height: 24,
+                                              flex: "0 0 24px",
+                                              borderRadius: "50%",
+                                              display: "grid",
+                                              placeItems: "center",
+                                              border: reached
+                                                ? "1px solid rgba(122,75,157,0.20)"
+                                                : "1px solid rgba(122,75,157,0.12)",
+                                              background: completed
+                                                ? "linear-gradient(135deg, #ff8d96, #9a70db)"
+                                                : current
+                                                  ? "rgba(154,112,219,0.16)"
+                                                  : "rgba(255,255,255,0.9)",
+                                              color: completed ? "#fff" : current ? "#6f3f8f" : "#a99daf",
+                                              fontSize: ".72rem",
+                                              fontWeight: 900,
+                                              boxShadow: current ? "0 0 0 4px rgba(154,112,219,0.08)" : "none",
+                                            }}
+                                          >
+                                            {completed ? "✓" : current ? "•" : index + 1}
+                                          </div>
+                                          <div
+                                            style={{
+                                              height: 4,
+                                              flex: 1,
+                                              borderRadius: 999,
+                                              background: completed
+                                                ? "linear-gradient(90deg, #ff8d96, #9a70db)"
+                                                : "rgba(122,75,157,0.10)",
+                                            }}
+                                          />
+                                        </div>
+                                        <div
+                                          style={{
+                                            marginTop: 6,
+                                            fontSize: ".68rem",
+                                            fontWeight: current || completed ? 900 : 700,
+                                            color: current ? "#5d3378" : completed ? "#765086" : "#a095a5",
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                          }}
+                                        >
+                                          {label}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {request.status === "approved" && (
+                                  <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAppointmentSms(request)}
+                                      style={{
+                                        width: "100%",
+                                        padding: "11px 12px",
+                                        border: "1px solid rgba(122,75,157,0.16)",
+                                        borderRadius: 14,
+                                        background: "linear-gradient(135deg, #ff9ca5, #9a70db)",
+                                        color: "#fff",
+                                        fontWeight: 900,
+                                        cursor: "pointer",
+                                        boxShadow: "0 10px 24px rgba(111,63,143,0.14)",
+                                      }}
+                                    >
+                                      ✉ Üzenet megnyitása
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void advanceAppointmentRequestStatus(request)}
+                                      disabled={appointmentStatusSavingId === request.id}
+                                      style={{
+                                        width: "100%",
+                                        padding: "10px 12px",
+                                        border: "1px solid rgba(122,75,157,0.16)",
+                                        borderRadius: 14,
+                                        background: "rgba(255,255,255,0.9)",
+                                        color: "#68427e",
+                                        fontWeight: 900,
+                                        cursor: appointmentStatusSavingId === request.id ? "wait" : "pointer",
+                                        opacity: appointmentStatusSavingId === request.id ? 0.65 : 1,
+                                      }}
+                                    >
+                                      {appointmentStatusSavingId === request.id ? "Mentés…" : "✓ Elküldtem"}
+                                    </button>
+                                    <p style={{ margin: 0, color: "#8a7a90", fontSize: ".78rem", lineHeight: 1.4 }}>
+                                      Az első gomb csak megnyitja az SMS-t. A küldést te véglegesíted a telefonodon.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {request.status === "sent" && (
+                                  <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                                    <label style={{ color: "#60416f", fontWeight: 900, fontSize: ".84rem" }}>
+                                      Mit válaszolt a szolgáltató?
+                                    </label>
+                                    <textarea
+                                      value={appointmentReplyDrafts[request.id] ?? request.provider_reply ?? ""}
+                                      onChange={(event) => setAppointmentReplyDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
+                                      placeholder="Pl. Szia! Kedden 16:30-kor van szabad időpontom."
+                                      rows={3}
+                                      style={{ width: "100%", resize: "vertical", padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(122,75,157,0.16)", background: "rgba(255,255,255,0.92)", color: "#553962", font: "inherit", outline: "none" }}
+                                    />
+                                    <button type="button" onClick={() => void saveAppointmentReply(request)} disabled={appointmentStatusSavingId === request.id} style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(122,75,157,0.16)", borderRadius: 14, background: "linear-gradient(135deg, rgba(255,141,150,0.12), rgba(154,112,219,0.15))", color: "#68427e", fontWeight: 900, cursor: appointmentStatusSavingId === request.id ? "wait" : "pointer", opacity: appointmentStatusSavingId === request.id ? 0.65 : 1 }}>
+                                      {appointmentStatusSavingId === request.id ? "Mentés…" : "✓ Válasz rögzítése"}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {request.status === "replied" && (
+                                  <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                                    {request.provider_reply && <div style={{ padding: "10px 12px", borderRadius: 13, background: "rgba(103,142,214,0.08)", color: "#5f5570", lineHeight: 1.5 }}><strong style={{ color: "#486aa3" }}>Válasz:</strong> {request.provider_reply}</div>}
+                                    <label style={{ color: "#60416f", fontWeight: 900, fontSize: ".84rem" }}>
+                                      Melyik pontos időpontot foglaljuk le?
+                                    </label>
+                                    <input
+                                      value={appointmentConfirmedTimeDrafts[request.id] ?? request.confirmed_time_text ?? ""}
+                                      onChange={(event) => setAppointmentConfirmedTimeDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
+                                      placeholder="Pl. 16:30"
+                                      style={{ width: "100%", padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(122,75,157,0.16)", background: "rgba(255,255,255,0.92)", color: "#553962", font: "inherit", outline: "none" }}
+                                    />
+                                    <button type="button" onClick={() => void confirmAppointmentTime(request)} disabled={appointmentStatusSavingId === request.id} style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(122,75,157,0.16)", borderRadius: 14, background: "linear-gradient(135deg, #ff9ca5, #9a70db)", color: "#fff", fontWeight: 900, cursor: appointmentStatusSavingId === request.id ? "wait" : "pointer", opacity: appointmentStatusSavingId === request.id ? 0.65 : 1 }}>
+                                      {appointmentStatusSavingId === request.id ? "Mentés…" : "✓ Időpont lefoglalva"}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {request.status === "confirmed" && request.confirmed_time_text && (
+                                  <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 13, background: "rgba(88,177,133,0.10)", color: "#34745a", fontWeight: 800 }}>
+                                    <div>✓ Visszaigazolt időpont: {request.desired_date_text} · {request.confirmed_time_text}</div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAppointmentCalendar(request)}
+                                      style={{
+                                        width: "100%",
+                                        marginTop: 10,
+                                        padding: "10px 12px",
+                                        border: "1px solid rgba(52,116,90,0.20)",
+                                        borderRadius: 14,
+                                        background: "rgba(255,255,255,0.82)",
+                                        color: "#34745a",
+                                        fontWeight: 900,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      📅 Naptárba teszem
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <p style={{ margin: "12px 0 0", color: "#8a7a90", fontSize: ".84rem", lineHeight: 1.45 }}>
+                    Itt követheted a folyamatot: Jóváhagyva → Elküldve → Válasz érkezett → Időpont lefoglalva. A visszaigazolt időpontot már közvetlenül hozzáadhatod a naptáradhoz. Hívást még nem indítunk.
+                  </p>
+                </div>
+              )}
+
+            </section>
 
             <section className="summary-grid">
               <article className="summary-card coral-card">
@@ -3072,12 +5195,13 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           <>
             <section className="weekly-plan-intro">
               <div>
-                <span className="card-kicker">SZEMÉLYRE SZABOTT HETI ÉTKEZÉS</span>
+                <span className="card-kicker">SZEMÉLYRE SZABOTT HETI RITMUS</span>
                 <h2>A te heti egyensúlyod</h2>
                 <p>
-                  A terved a célodhoz igazodik, de nem kötelező lista. Cserélj
-                  fel napokat, és válaszd azt, ami most belefér. Ugyanazt a
-                  receptet 14 napig nem ajánljuk újra, ha van más megfelelő választás.
+                  A terved a célodhoz, a mozgási szintedhez és a mostani
+                  közérzetedhez igazodik, de nem kötelező lista. Cserélj fel
+                  napokat, és válaszd azt, ami most belefér. A recepteknél
+                  továbbra is figyelünk arra, hogy ne legyen felesleges ismétlés.
                 </p>
               </div>
               <div className="weekly-plan-goal">
@@ -3250,13 +5374,33 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )}
 
         {view === "recipes" && (
-          <RecipesView
-            storageKey={recipeStorageKey}
-            onAddMeal={addRecipeToMeals}
-            onAddShopping={handleRecipeShopping}
-            onOpenShopping={() => setView("shopping")}
-            preferences={preferences}
-          />
+          <>
+            <section style={{ marginBottom: 18 }}>
+              <article
+                className="dashboard-card"
+                style={{
+                  padding: "16px 18px",
+                  background: "rgba(122,75,157,0.06)",
+                }}
+              >
+                <span className="card-kicker">ZENVYRA ÉTKEZÉSI IRÁNY</span>
+                <strong style={{ display: "block", marginTop: 6, marginBottom: 4 }}>
+                  {zenvyraNutrition.title}
+                </strong>
+                <p style={{ margin: 0, lineHeight: 1.5 }}>
+                  {zenvyraNutrition.recipeText}
+                </p>
+              </article>
+            </section>
+
+            <RecipesView
+              storageKey={recipeStorageKey}
+              onAddMeal={addRecipeToMeals}
+              onAddShopping={handleRecipeShopping}
+              onOpenShopping={() => setView("shopping")}
+              preferences={preferences}
+            />
+          </>
         )}
 
         {view === "challenges" && (
@@ -3326,7 +5470,26 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         )}
 
         {view === "meals" && (
-          <section className="dashboard-card full-card">
+          <>
+            <section style={{ marginBottom: 18 }}>
+              <article
+                className="dashboard-card"
+                style={{
+                  padding: "16px 18px",
+                  background: "rgba(122,75,157,0.06)",
+                }}
+              >
+                <span className="card-kicker">ZENVYRA ÉTKEZÉSI RITMUS</span>
+                <strong style={{ display: "block", marginTop: 6, marginBottom: 4 }}>
+                  {zenvyraNutrition.title}
+                </strong>
+                <p style={{ margin: 0, lineHeight: 1.5 }}>
+                  {zenvyraNutrition.text}
+                </p>
+              </article>
+            </section>
+
+            <section className="dashboard-card full-card">
             <div className="card-heading">
               <div>
                 <span className="card-kicker">NAPLÓ</span>
@@ -3376,17 +5539,44 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <div className="empty-state">Még nincs rögzített étkezés.</div>
               )}
             </div>
-          </section>
+            </section>
+          </>
         )}
 
         {view === "movement" && (
-          <MovementView
-            history={movementHistory}
-            onComplete={completeWorkout}
-            preferredMinutes={preferences.workout_minutes}
-            preferredLevel={preferences.fitness_level}
-            movementLimitations={preferences.movement_limitations}
-          />
+          <>
+            <section style={{ marginBottom: 18 }}>
+              <article
+                className="dashboard-card"
+                style={{
+                  padding: "16px 18px",
+                  background: "rgba(122,75,157,0.06)",
+                }}
+              >
+                <span className="card-kicker">ZENVYRA MOZGÁSI RITMUS</span>
+                <strong style={{ display: "block", marginTop: 6, marginBottom: 4 }}>
+                  A mostani állapotodhoz igazítva
+                </strong>
+                <p style={{ margin: 0, lineHeight: 1.5 }}>
+                  {zenvyraState.rhythm === "recovery"
+                    ? `Most a regenerálódás az első. ${zenvyraState.movementMinutes} perc kímélő mozgás bőven elég.`
+                    : zenvyraState.rhythm === "rebuild"
+                      ? `Most a rendszerességet építjük vissza. ${zenvyraState.movementMinutes} perc könnyen tartható mozgást javaslok.`
+                      : zenvyraState.rhythm === "progress"
+                        ? `Jól tartod a ritmust. Most ${zenvyraState.movementMinutes} perc ${zenvyraState.movementIntensity} mozgás is beleférhet.`
+                        : `Most az egyensúly megtartása a cél. ${zenvyraState.movementMinutes} perc ${zenvyraState.movementIntensity} mozgás jó választás.`}
+                </p>
+              </article>
+            </section>
+
+            <MovementView
+              history={movementHistory}
+              onComplete={completeWorkout}
+              preferredMinutes={preferences.workout_minutes}
+              preferredLevel={preferences.fitness_level}
+              movementLimitations={preferences.movement_limitations}
+            />
+          </>
         )}
 
         {view === "wellbeing" && (
@@ -3431,7 +5621,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     <button
                       type="button"
                       key={value}
-                      onClick={() => setEnergyLevel(value)}
+                      onClick={() => void saveEnergyLevel(value)}
                       style={{
                         appearance: "none",
                         border:
@@ -3464,7 +5654,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                     <button
                       type="button"
                       key={value}
-                      onClick={() => setStressLevel(value)}
+                      onClick={() => void saveStressLevel(value)}
                       style={{
                         appearance: "none",
                         border:
@@ -3499,6 +5689,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                   type="text"
                   value={wellbeingNote}
                   onChange={(event) => setWellbeingNote(event.target.value)}
+                  onBlur={() => void saveWellbeingSnapshot({ note: wellbeingNote })}
                   placeholder="például fáradtabb vagyok, nyugodtabb napot szeretnék"
                   style={{
                     width: "100%",
@@ -3605,6 +5796,30 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
         {view === "progress" && (
           <>
+            <section style={{ marginBottom: 18 }}>
+              <article
+                className="dashboard-card"
+                style={{
+                  padding: "16px 18px",
+                  background: "rgba(122,75,157,0.06)",
+                }}
+              >
+                <span className="card-kicker">ZENVYRA HALADÁSI KÉP</span>
+                <strong style={{ display: "block", marginTop: 6, marginBottom: 4 }}>
+                  Nem csak a mérleg számít
+                </strong>
+                <p style={{ margin: 0, lineHeight: 1.5 }}>
+                  {zenvyraState.rhythm === "recovery"
+                    ? "Most a regenerálódás és a stabil napi ritmus fontosabb, mint a teljesítmény növelése."
+                    : zenvyraState.rhythm === "rebuild"
+                      ? "A rendszerességed épül. Most azt figyeljük, hogy egyre több tartható nap álljon össze."
+                      : zenvyraState.rhythm === "progress"
+                        ? "A mozgási ritmusod már stabilabb, ezért a fejlődés következő szintje is fokozatosan megjelenhet."
+                        : "A jelenlegi adatok alapján az egyensúly megtartása a fő irány."}
+                </p>
+              </article>
+            </section>
+
             <section className="progress-summary-grid">
               <article className="dashboard-card progress-card">
               <span className="card-kicker">TESTSÚLY</span>
