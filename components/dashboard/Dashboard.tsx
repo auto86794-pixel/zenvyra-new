@@ -2587,25 +2587,25 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     });
   }, [dailyGoal, fullDayMenu, meals]);
 
-  const todayMealPlanSummary = useMemo(() => {
-    const consumed = meals.filter((meal) => meal.consumed);
-    const planned = meals.filter((meal) => !meal.consumed);
-    const remainingCalories = Math.max(0, dailyGoal - totals.kcal);
+  const nextMealPlanItem = useMemo(() => {
+    const hour = now.getHours();
+    const preferredOrder =
+      hour < 10
+        ? ["Reggeli", "Ebéd", "Kisétkezés", "Vacsora"]
+        : hour < 14
+          ? ["Ebéd", "Kisétkezés", "Vacsora", "Reggeli"]
+          : hour < 18
+            ? ["Kisétkezés", "Vacsora", "Ebéd", "Reggeli"]
+            : ["Vacsora", "Kisétkezés", "Ebéd", "Reggeli"];
 
-    if (consumed.length === 0 && planned.length === 0) {
-      return `A mai tervet a ${dailyGoal} kcal-os célodhoz és a személyes szűrőidhez igazítottam.`;
-    }
-
-    if (remainingCalories <= 150) {
-      return "A mai energiakereted nagy része már összeállt. Nem kell újabb étkezést csak a számok miatt hozzáadnod.";
-    }
-
-    if (consumed.length > 0) {
-      return `${totals.kcal} kcal-t már elfogyasztottként rögzítettél. A hátralévő ajánlásokat a még fennmaradó kb. ${remainingCalories} kcal-hoz igazítom.`;
-    }
-
-    return "Van már tervezett étkezésed. A még üres étkezési helyeket ezekhez és a napi célodhoz igazítom.";
-  }, [dailyGoal, meals, totals.kcal]);
+    return (
+      preferredOrder
+        .map((type) => todayMealPlan.find((item) => item.type === type))
+        .find((item) => item && !item.existing && item.recommendation) ??
+      todayMealPlan.find((item) => !item.existing && item.recommendation) ??
+      null
+    );
+  }, [now, todayMealPlan]);
 
   async function addTodayMealPlanItem(
     item: (typeof todayMealPlan)[number],
@@ -4114,119 +4114,103 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               </div>
             </section>
 
-            <section
-              className="dashboard-card"
-              aria-labelledby="today-meal-plan-title"
+            <div
               style={{
-                padding: "18px 20px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: 14,
                 marginBottom: 20,
-                background: "rgba(255,255,255,0.92)",
-                border: "1px solid rgba(122,75,157,0.10)",
               }}
             >
-              <div
+              <section
+                className="dashboard-card"
+                aria-labelledby="today-next-meal-title"
                 style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  gap: 14,
-                  flexWrap: "wrap",
-                  marginBottom: 14,
+                  padding: "18px 20px",
+                  margin: 0,
+                  background: "rgba(255,255,255,0.92)",
+                  border: "1px solid rgba(122,75,157,0.10)",
                 }}
               >
-                <div style={{ flex: "1 1 420px" }}>
-                  <span className="card-kicker">ZENVYRA · MAI ÉTKEZÉSI TERV</span>
-                  <h2
-                    id="today-meal-plan-title"
-                    style={{ margin: "6px 0 5px", fontSize: "1.2rem" }}
-                  >
-                    A napodhoz igazítva
-                  </h2>
-                  <p style={{ margin: 0, lineHeight: 1.5 }}>
-                    {todayMealPlanSummary}
+                <span className="card-kicker">KÖVETKEZŐ ÉTKEZÉS</span>
+                <h2
+                  id="today-next-meal-title"
+                  style={{ margin: "6px 0 6px", fontSize: "1.15rem" }}
+                >
+                  {nextMealPlanItem?.recommendation
+                    ? nextMealPlanItem.recommendation.recipe.name
+                    : "A mai étkezéseid rendben vannak"}
+                </h2>
+
+                {nextMealPlanItem?.recommendation ? (
+                  <>
+                    <p style={{ margin: "0 0 13px", color: "#6f6576", lineHeight: 1.45 }}>
+                      {nextMealPlanItem.type} · {nextMealPlanItem.recommendation.kcal} kcal ·{" "}
+                      {nextMealPlanItem.recommendation.protein} g fehérje
+                    </p>
+                    <button
+                      type="button"
+                      className="outline-button"
+                      onClick={() => void addTodayMealPlanItem(nextMealPlanItem)}
+                    >
+                      Mai tervhez adom
+                    </button>
+                  </>
+                ) : (
+                  <p style={{ margin: "0 0 13px", color: "#6f6576", lineHeight: 1.45 }}>
+                    Nem kell most újabb étkezést tervezned.
                   </p>
-                </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setView("meals")}
+                  style={{
+                    display: "block",
+                    marginTop: 12,
+                    padding: 0,
+                    border: 0,
+                    background: "transparent",
+                    color: "#755486",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Étkezések megnyitása →
+                </button>
+              </section>
+
+              <section
+                className="dashboard-card"
+                aria-labelledby="today-movement-title"
+                style={{
+                  padding: "18px 20px",
+                  margin: 0,
+                  background: "rgba(255,255,255,0.92)",
+                  border: "1px solid rgba(122,75,157,0.10)",
+                }}
+              >
+                <span className="card-kicker">MAI MOZGÁS</span>
+                <h2
+                  id="today-movement-title"
+                  style={{ margin: "6px 0 6px", fontSize: "1.15rem" }}
+                >
+                  {movementDone ? "A mai mozgás kész ✓" : todayWorkout.title}
+                </h2>
+                <p style={{ margin: "0 0 13px", color: "#6f6576", lineHeight: 1.45 }}>
+                  {movementDone
+                    ? "Szép munka. Mára ennyi is elég lehet."
+                    : `${todayWorkout.minutes} perc · ${todayWorkout.level} · ${todayWorkout.focus}`}
+                </p>
                 <button
                   type="button"
                   className="outline-button"
-                  onClick={() => setView("meals")}
+                  onClick={() => setView("movement")}
                 >
-                  Étkezések →
+                  {movementDone ? "Mozgásaim" : "Kezdem"}
                 </button>
-              </div>
-
-              <div style={{ display: "grid", gap: 9 }}>
-                {todayMealPlan.map((item) => {
-                  const recommendation = item.recommendation;
-
-                  return (
-                    <div
-                      key={item.type}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        padding: "11px 12px",
-                        borderRadius: 14,
-                        background: item.existing
-                          ? "rgba(102,170,132,0.07)"
-                          : "rgba(122,75,157,0.045)",
-                        border: "1px solid rgba(122,75,157,0.08)",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div style={{ flex: "1 1 320px", minWidth: 0 }}>
-                        <strong style={{ display: "block", marginBottom: 3 }}>
-                          {item.type}
-                          {item.optional ? " · opcionális" : ""}
-                        </strong>
-
-                        {item.existing ? (
-                          <span style={{ color: "#6f6576", lineHeight: 1.4 }}>
-                            {item.existing.food} · {item.existing.kcal} kcal ·{" "}
-                            {item.existing.consumed ? "elfogyasztva ✓" : "tervezve"}
-                          </span>
-                        ) : recommendation ? (
-                          <span style={{ color: "#6f6576", lineHeight: 1.4 }}>
-                            {recommendation.recipe.name} ·{" "}
-                            {String(recommendation.portions).replace(".", ",")} adag ·{" "}
-                            {recommendation.kcal} kcal · {recommendation.protein} g fehérje
-                          </span>
-                        ) : (
-                          <span style={{ color: "#8a7a90" }}>
-                            Most nincs megfelelő ajánlás ehhez az étkezéshez.
-                          </span>
-                        )}
-                      </div>
-
-                      {!item.existing && recommendation && (
-                        <button
-                          type="button"
-                          className="outline-button"
-                          onClick={() => void addTodayMealPlanItem(item)}
-                        >
-                          Mai tervhez adom
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <p
-                style={{
-                  margin: "12px 0 0",
-                  fontSize: "0.8rem",
-                  lineHeight: 1.45,
-                  color: "#8a7a90",
-                }}
-              >
-                Az elfogyasztott és már megtervezett étkezéseket nem tervezzük újra.
-                Ha nap közben változik, amit ettél, a hátralévő ajánlások automatikusan
-                újraszámolódnak.
-              </p>
-            </section>
+              </section>
+            </div>
 
             {currentHour < 11 ? (
               <section
