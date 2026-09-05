@@ -29,7 +29,7 @@ export default function PrivacyPage() {
         </p>
         <h2>Hol tároljuk az adatokat?</h2>
         <p>
-          A bejelentkezett fiók adatai védett felhőalapú adatbázisban tárolódnak. A vendég mód adatai kizárólag az aktuális böngésző eszköztárában maradnak, és nem kapcsolódnak felhasználói fiókhoz.
+          A bejelentkezett fiók adatai védett felhőalapú adatbázisban tárolódnak. A vendég mód adatai kizárólag az aktuális böngésző helyi tárhelyén maradnak, és nem kapcsolódnak felhasználói fiókhoz.
         </p>
         <h2>A te lehetőségeid</h2>
         <p>

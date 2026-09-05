@@ -436,6 +436,32 @@ button {
   font-weight: 800;
 }
 
+.legal-eyebrow {
+  color: #98656c;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.not-found-content {
+  text-align: center;
+}
+
+.legal-primary-link {
+  display: inline-flex;
+  margin-top: 0.75rem;
+  border-radius: 999px;
+  background: #23473a;
+  color: #fff;
+  padding: 0.8rem 1.15rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.legal-primary-link:hover {
+  background: #18362c;
+}
+
 .eye-button {
   padding: 7px;
   color: #9a8ca4;

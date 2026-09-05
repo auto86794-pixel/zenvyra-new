@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,6 +10,11 @@ export const metadata: Metadata = {
   description:
     "Személyre szabott támogatás táplálkozáshoz, mozgáshoz és a mindennapi jólléthez.",
   applicationName: "Zenvyra",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/zenvyra-internal-logo.png",
+    apple: "/zenvyra-internal-logo.png",
+  },
   openGraph: {
     title: "Zenvyra – Test és lélek harmóniában",
     description:
@@ -18,6 +23,11 @@ export const metadata: Metadata = {
     locale: "hu_HU",
     siteName: "Zenvyra",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#23473a",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
