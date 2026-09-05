@@ -792,6 +792,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   );
 
   const dailyGoal = profile?.daily_calorie_goal ?? 2000;
+  const macroTargets = {
+    protein: profile?.protein_target_g ?? Math.round((dailyGoal * 0.25) / 4),
+    carbs: profile?.carbs_target_g ?? Math.round((dailyGoal * 0.45) / 4),
+    fat: profile?.fat_target_g ?? Math.round((dailyGoal * 0.3) / 9),
+  };
   const [now, setNow] = useState(() => new Date());
   const [tomorrowStart, setTomorrowStart] =
     useState<AssistantStartChoice | null>(null);
@@ -3850,6 +3855,20 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     setQuickWeight("68,4");
   }
 
+  function startWithOwnData() {
+    setMeals([]);
+    setWater(0);
+    setMovementDone(false);
+    setMood(0);
+    setEnergyLevel(null);
+    setStressLevel(null);
+    setWellbeingNote("");
+    setWeight(0);
+    setWeightHistory([]);
+    setMovementHistory([]);
+    setQuickWeight("");
+  }
+
   return (
     <main className="dashboard-shell">
       <aside
@@ -4021,6 +4040,26 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <span>{cloudReady ? "☁" : "…"}</span>
             {cloudMessage || (cloudReady ? "Felhőmentés aktív" : "Adatok betöltése…")}
           </div>
+        )}
+
+        {guestMode && (
+          <section className="guest-demo-banner" aria-label="Bemutató mód">
+            <div>
+              <span className="card-kicker">BEMUTATÓ MÓD</span>
+              <strong>Az itt látható értékek próbaadatok.</strong>
+              <p>
+                Szabadon kipróbálhatod a Zenvyrát, vagy indulhatsz egy üres nappal a saját adataiddal.
+              </p>
+            </div>
+            <div className="guest-demo-actions">
+              <button type="button" className="outline-button" onClick={startWithOwnData}>
+                Saját adatokkal kezdem
+              </button>
+              <button type="button" className="text-button" onClick={resetDemoData}>
+                Próbaadatok visszaállítása
+              </button>
+            </div>
+          </section>
         )}
 
         {view === "today" && (
@@ -4567,8 +4606,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               </section>
             )}
 
-            <section
-              className="dashboard-card"
+            <details
+              className="dashboard-card assistant-beta-card"
               aria-labelledby="errand-assistant-title"
               style={{
                 padding: "26px",
@@ -4580,6 +4619,10 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 border: "1px solid rgba(122, 75, 157, 0.12)",
               }}
             >
+              <summary>
+                <span><strong>Zenvyra asszisztens</strong> <small>BÉTA</small></span>
+                <span>Megnyitás →</span>
+              </summary>
               <div
                 aria-hidden="true"
                 style={{
@@ -4595,7 +4638,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               />
 
               <div style={{ position: "relative" }}>
-                <span className="card-kicker">✦ ZENVYRA ASSZISZTENS</span>
+                <span className="card-kicker">✦ ZENVYRA ASSZISZTENS · KÍSÉRLETI FUNKCIÓ</span>
                 <h2
                   id="errand-assistant-title"
                   style={{ margin: "7px 0 8px", fontSize: "clamp(1.45rem, 3vw, 2rem)" }}
@@ -5252,7 +5295,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 </div>
               )}
 
-            </section>
+            </details>
 
             <section className="summary-grid">
               <article className="summary-card coral-card">
@@ -5366,16 +5409,21 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 <div className="macro-grid">
                   <div>
                     <span>Fehérje</span>
-                    <strong>{totals.protein} / {profile?.protein_target_g ?? "—"} g</strong>
+                    <strong>{totals.protein} / {macroTargets.protein} g</strong>
                   </div>
                   <div>
                     <span>Szénhidrát</span>
-                    <strong>{totals.carbs} / {profile?.carbs_target_g ?? "—"} g</strong>
+                    <strong>{totals.carbs} / {macroTargets.carbs} g</strong>
                   </div>
                   <div>
                     <span>Zsír</span>
-                    <strong>{totals.fat} / {profile?.fat_target_g ?? "—"} g</strong>
+                    <strong>{totals.fat} / {macroTargets.fat} g</strong>
                   </div>
+                  {!profile?.protein_target_g && (
+                    <p className="macro-target-note">
+                      Becsült célok a napi kalóriacél alapján. Bejelentkezés után a profilodhoz igazítjuk őket.
+                    </p>
+                  )}
                 </div>
               </article>
 
@@ -6097,7 +6145,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <section className="progress-summary-grid">
               <article className="dashboard-card progress-card">
               <span className="card-kicker">TESTSÚLY</span>
-              <h2>{weight.toFixed(1).replace(".", ",")} kg</h2>
+              <h2>
+                {weightChart.measured.length > 0
+                  ? `${weight.toFixed(1).replace(".", ",")} kg`
+                  : "Még nincs adat"}
+              </h2>
               <p>
                 Aktuális érték
                 {profile?.target_weight_kg
@@ -6121,6 +6173,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
               <div className="weight-buttons">
                 <button
                   type="button"
+                  disabled={weightChart.measured.length === 0}
                   onClick={() => {
                     const next = Math.max(
                       30,
@@ -6134,6 +6187,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
                 </button>
                 <button
                   type="button"
+                  disabled={weightChart.measured.length === 0}
                   onClick={() => {
                     const next = Math.min(
                       250,
@@ -6507,6 +6561,10 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           .dashboard-sidebar .dashboard-signout {
             opacity: 1 !important;
             visibility: visible !important;
+          }
+
+          .dashboard-sidebar .dashboard-signout {
+            display: flex !important;
           }
 
           .dashboard-sidebar .dashboard-brand {

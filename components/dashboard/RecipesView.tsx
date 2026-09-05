@@ -195,37 +195,66 @@ function uniqueStrings(values: string[]) {
 function buildStarterRecipes(): Recipe[] {
   const recipes: Recipe[] = [];
 
-  for (const protein of proteinParts) {
-    for (const base of baseParts) {
-      for (const flavor of flavorParts) {
-        const id = `zenvyra-${protein.key}-${base.key}-${flavor.key}`;
-        const flavorExtra = flavor.extra;
-        const oil = { kcal: 90, protein: 0, carbs: 0, fat: 10 };
+  const baseTitles: Record<string, string> = {
+    rice: "rizstál",
+    brownrice: "barna rizses tál",
+    potato: "burgonyatál",
+    quinoa: "quinoatál",
+    millet: "köleses tál",
+    buckwheat: "hajdinatál",
+    couscous: "kuszkusztál",
+    pasta: "durumtésztás tál",
+    bulgur: "bulgurtál",
+    sweetpotato: "édesburgonya-tál",
+  };
+  const proteinWith: Record<string, string> = {
+    chicken: "csirkemellel",
+    turkey: "pulykamellel",
+    salmon: "lazaccal",
+    tuna: "tonhallal",
+    beef: "sovány marhahússal",
+    egg: "tojással",
+    tofu: "tofuval",
+    chickpea: "csicseriborsóval",
+    lentil: "lencsével",
+    tempeh: "tempehhel",
+    cottage: "cottage cheese-zel",
+    beans: "vörösbabbal",
+  };
 
-        recipes.push({
-          id,
-          name: `${flavor.label} ${protein.name.toLocaleLowerCase("hu")}-${base.name.toLocaleLowerCase("hu")} tál`,
-          servings: 2,
-          kcal: Math.round(protein.kcal + base.kcal + flavorExtra.kcal + oil.kcal),
-          protein: Math.round(protein.protein + base.protein + flavorExtra.protein),
-          carbs: Math.round(protein.carbs + base.carbs + flavorExtra.carbs),
-          fat: Math.round(protein.fat + base.fat + flavorExtra.fat + oil.fat),
-          dietStyle: protein.dietStyle ?? "omnivore",
-          allergens: uniqueStrings([...(protein.allergens ?? []), ...(base.allergens ?? []), ...flavor.allergens]),
-          mealTypes: ["lunch", "dinner"],
-          ingredients: [
-            { id: `${id}-1`, name: protein.name, amount: protein.amount },
-            { id: `${id}-2`, name: base.name, amount: base.amount },
-            ...flavor.ingredients.map((ingredient, index) => ({
-              id: `${id}-flavor-${index + 1}`,
-              name: ingredient.name,
-              amount: ingredient.amount,
-            })),
-            { id: `${id}-veg`, name: "Vegyes friss zöldség", amount: "300 g" },
-            { id: `${id}-oil`, name: "Olívaolaj", amount: "2 teáskanál" },
-          ],
-        });
-      }
+  // Fehérjeforrásonként öt, előre meghatározott párosítást tartunk meg.
+  // Így a kínálat változatos marad, de nem hat véletlenszerű kombinátorgépnek.
+  for (const [proteinIndex, protein] of proteinParts.entries()) {
+    for (let variant = 0; variant < 5; variant += 1) {
+      const base = baseParts[(proteinIndex + variant * 2) % baseParts.length];
+      const flavor = flavorParts[(proteinIndex * 2 + variant) % flavorParts.length];
+      const id = `zenvyra-${protein.key}-${base.key}-${flavor.key}`;
+      const flavorExtra = flavor.extra;
+      const oil = { kcal: 90, protein: 0, carbs: 0, fat: 10 };
+
+      recipes.push({
+        id,
+        name: `${flavor.label} ${baseTitles[base.key]} ${proteinWith[protein.key]}`,
+        servings: 2,
+        kcal: Math.round(protein.kcal + base.kcal + flavorExtra.kcal + oil.kcal),
+        protein: Math.round(protein.protein + base.protein + flavorExtra.protein),
+        carbs: Math.round(protein.carbs + base.carbs + flavorExtra.carbs),
+        fat: Math.round(protein.fat + base.fat + flavorExtra.fat + oil.fat),
+        dietStyle: protein.dietStyle ?? "omnivore",
+        allergens: uniqueStrings([...(protein.allergens ?? []), ...(base.allergens ?? []), ...flavor.allergens]),
+        mealTypes: ["lunch", "dinner"],
+        ingredients: [
+          { id: `${id}-1`, name: protein.name, amount: protein.amount },
+          { id: `${id}-2`, name: base.name, amount: base.amount },
+          ...flavor.ingredients.map((ingredient, index) => ({
+            id: `${id}-flavor-${index + 1}`,
+            name: ingredient.name,
+            amount: ingredient.amount,
+          })),
+          { id: `${id}-veg`, name: "Vegyes friss zöldség", amount: "300 g" },
+          { id: `${id}-oil`, name: "Olívaolaj", amount: "2 teáskanál" },
+        ],
+      });
     }
   }
 
@@ -412,7 +441,7 @@ function auditRecipeAllergens(recipe: Recipe): Recipe {
 }
 
 
-// 1080 főétel + külön reggeli és kisétkezés receptek.
+// Szerkesztett méretű főétel-választék + külön reggeli és kisétkezés receptek.
 // A mealTypes mező alapján a napi menütervező már nem csak makró szerint,
 // hanem az étkezés jellegéhez illően is tud majd választani.
 export const starterRecipes: Recipe[] = [
@@ -423,7 +452,7 @@ export const starterRecipes: Recipe[] = [
 export function ensureStarterRecipes(storageKey: string): Recipe[] {
   if (typeof window === "undefined") return starterRecipes;
 
-  const seedKey = `${storageKey}:starter-v8-grain-rotation`;
+  const seedKey = `${storageKey}:starter-v10-curated-library`;
 
   try {
     const raw = window.localStorage.getItem(storageKey);

@@ -263,6 +263,15 @@ export default function PreferencesPanel({
           </small>
         </label>
 
+        <aside className="health-safety-note" role="note">
+          <strong>Biztonság mindenekelőtt</strong>
+          <p>
+            A Zenvyra általános életmód-ajánlásokat ad, nem diagnózist vagy orvosi kezelést.
+            Sérülés, fájdalom, betegség, várandósság vagy étkezési zavar esetén kérj személyre
+            szabott segítséget orvostól vagy megfelelő szakembertől.
+          </p>
+        </aside>
+
         <div
           style={{
             marginTop: "22px",
@@ -281,13 +290,13 @@ export default function PreferencesPanel({
               justifyContent: "center",
               border: "0",
               borderRadius: "16px",
-              background: busy ? "#b9a7c8" : "#5b3475",
+              background: busy ? "#9eb3aa" : "#315748",
               color: "#ffffff",
               fontSize: "clamp(14px, 2.8vw, 15px)",
               fontWeight: 800,
               letterSpacing: "0.01em",
               cursor: busy ? "wait" : "pointer",
-              boxShadow: "0 10px 24px rgba(91, 52, 117, 0.16)",
+              boxShadow: "0 10px 24px rgba(49, 87, 72, 0.16)",
             }}
           >
             {busy ? "Mentés…" : "Profil mentése"}

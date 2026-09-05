@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 
 import { supabase } from "@/lib/supabase/client";
 
@@ -376,6 +377,11 @@ export default function AuthCard({
           </button>
         )}
       </footer>
+
+      <nav className="auth-legal-links" aria-label="Jogi információk">
+        <Link href="/adatkezeles">Adatkezelési tájékoztató</Link>
+        <Link href="/felhasznalasi-feltetelek">Felhasználási feltételek</Link>
+      </nav>
     </div>
   );
 }

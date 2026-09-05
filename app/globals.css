@@ -26,6 +26,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -377,6 +379,61 @@ button {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.auth-legal-links {
+  margin-top: 24px;
+  display: flex;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.auth-legal-links a {
+  color: #60756c;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legal-page {
+  min-height: 100vh;
+  padding: 48px 20px 80px;
+  color: #243d34;
+  background: linear-gradient(180deg, #fffaf9 0%, #f4faf7 100%);
+}
+
+.legal-content {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid rgba(49, 87, 72, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 20px 60px rgba(35, 68, 56, 0.08);
+}
+
+.legal-content h1,
+.legal-content h2 {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.legal-content h1 {
+  margin: 12px 0 24px;
+  font-size: clamp(2rem, 6vw, 3.4rem);
+}
+
+.legal-content h2 {
+  margin: 30px 0 10px;
+}
+
+.legal-content p,
+.legal-content li {
+  line-height: 1.7;
+}
+
+.legal-back-link {
+  color: #315748;
+  font-weight: 800;
 }
 
 .eye-button {
@@ -2769,6 +2826,18 @@ button {
 }
 
 @media (max-width: 720px) {
+  .landing-shell,
+  .hero-panel,
+  .hero-content,
+  .login-side {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .hero-glow {
+    max-width: 100vw;
+  }
+
   .shopping-intro {
     flex-direction: column;
   }
@@ -3224,6 +3293,127 @@ button {
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
+}
+
+.guest-demo-banner {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid rgba(49, 87, 72, 0.16);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: #234438;
+  background: linear-gradient(135deg, rgba(244, 250, 247, 0.98), rgba(255, 248, 249, 0.98));
+}
+
+.guest-demo-banner strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 17px;
+}
+
+.guest-demo-banner p {
+  margin: 5px 0 0;
+  color: #60756c;
+  line-height: 1.5;
+}
+
+.guest-demo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guest-demo-actions button {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .guest-demo-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guest-demo-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guest-demo-actions button {
+    width: 100%;
+    white-space: normal;
+  }
+}
+
+.macro-target-note {
+  margin: 10px 0 0;
+  color: #7d6e85;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assistant-beta-card > summary {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  color: #315748;
+  list-style: none;
+}
+
+.assistant-beta-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.assistant-beta-card > summary small {
+  margin-left: 6px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #315748;
+  background: #eaf4ef;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.assistant-beta-card[open] > summary {
+  margin-bottom: 22px;
+}
+
+.health-safety-note {
+  padding: 15px 16px;
+  border: 1px solid rgba(49, 87, 72, 0.14);
+  border-radius: 14px;
+  color: #315748;
+  background: #f3f8f5;
+}
+
+.health-safety-note p {
+  margin: 5px 0 0;
+  color: #60756c;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.text-button {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  color: #315748;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.weight-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .weight-entry {
