@@ -925,7 +925,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     return () => {
       active = false;
     };
-  }, [guestMode, serviceProviderStorageKey, session?.user]);
+  }, [guestMode, serviceProviderStorageKey, session?.user.id]);
 
   useEffect(() => {
     let active = true;
@@ -965,7 +965,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     return () => {
       active = false;
     };
-  }, [guestMode, session?.user]);
+  }, [guestMode, session?.user.id]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -1811,7 +1811,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     return () => {
       active = false;
     };
-  }, [recipeStorageKey, view]);
+  }, [recipeStorageKey]);
 
   useEffect(() => {
     if (!guestMode) return;
@@ -2110,7 +2110,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     return () => {
       active = false;
     };
-  }, [guestMode, session?.user]);
+  }, [guestMode, session?.user.id]);
 
   const totals = useMemo(
     () =>

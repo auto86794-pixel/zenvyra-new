@@ -1,15 +1,30 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import AuthCard, { type AuthMode } from "@/components/auth/AuthCard";
-import Dashboard from "@/components/dashboard/Dashboard";
-import ProfileOnboarding, {
-  type ZenvyraProfile,
-} from "@/components/onboarding/ProfileOnboarding";
+import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
 import { supabase } from "@/lib/supabase/client";
+
+const Dashboard = dynamic(() => import("@/components/dashboard/Dashboard"), {
+  loading: () => <AppLoading />,
+});
+const ProfileOnboarding = dynamic(
+  () => import("@/components/onboarding/ProfileOnboarding"),
+  { loading: () => <AppLoading /> },
+);
+
+function AppLoading() {
+  return (
+    <main className="auth-loading">
+      <div className="auth-loading-mark">✦</div>
+      <div>ZENVYRA</div>
+    </main>
+  );
+}
 
 const PROFILE_SELECT =
   "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed";
@@ -77,39 +92,10 @@ export default function HomePage() {
       }
     });
 
-    const handlePageShow = () => {
-      void (async () => {
-        const { data } = await supabase.auth.getSession();
-
-        if (!mounted) return;
-
-        setSession(data.session);
-        setAuthReady(true);
-
-        if (data.session) {
-          setProfileReady(false);
-          setProfileReloadKey((current) => current + 1);
-        } else {
-          setProfile(null);
-          setProfileReady(true);
-        }
-      })();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        handlePageShow();
-      }
-    };
-
-    window.addEventListener("pageshow", handlePageShow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      window.removeEventListener("pageshow", handlePageShow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -176,12 +162,7 @@ export default function HomePage() {
   }
 
   if (!authReady || (session && !profileReady)) {
-    return (
-      <main className="auth-loading">
-        <div className="auth-loading-mark">✦</div>
-        <div>ZENVYRA</div>
-      </main>
-    );
+    return <AppLoading />;
   }
 
   if (session && profileReady && !profile?.onboarding_completed) {
@@ -209,67 +190,14 @@ export default function HomePage() {
   return (
     <main className="landing-shell">
       <section className="hero-panel">
-        <div className="hero-glow glow-one" />
-        <div className="hero-glow glow-two" />
-
-        <div className="hero-content">
-          <div className="brand">
-            <Image
-              src="/zenvyra-lotus.png"
-              alt="ZENVYRA"
-              className="brand-logo"
-              width={512}
-              height={512}
-            />
-
-            <div>
-              <div className="brand-name">ZENVYRA</div>
-              <div className="brand-tagline">
-                TEST ÉS LÉLEK HARMÓNIÁBAN
-              </div>
-            </div>
-          </div>
-
-          <div className="hero-copy">
-            <h1>
-              Egyensúly.
-              <br />
-              Tudatosság.
-              <br />
-              <em>Te.</em>
-            </h1>
-
-            <div className="hero-line" />
-
-            <p>Táplálkozás, mozgás és közérzet harmóniában.</p>
-          </div>
-
-          <div className="feature-strip">
-            <article>
-              <div className="feature-icon peach">◒</div>
-              <strong>TÁPLÁLKOZÁS</strong>
-              <span>Tudatos étkezés egyszerűen</span>
-            </article>
-
-            <article>
-              <div className="feature-icon lavender">⌁</div>
-              <strong>MOZGÁS</strong>
-              <span>Edzések, amik inspirálnak</span>
-            </article>
-
-            <article>
-              <div className="feature-icon pink">◇</div>
-              <strong>KÖZÉRZET</strong>
-              <span>Test és lélek egyensúlyban</span>
-            </article>
-
-            <article>
-              <div className="feature-icon violet">▥</div>
-              <strong>HALADÁS</strong>
-              <span>Kövesd nyomon a fejlődésed</span>
-            </article>
-          </div>
-        </div>
+        <Image
+          src="/zenvyra-hero.webp"
+          alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
+          className="welcome-hero-image"
+          fill
+          priority
+          sizes="(max-width: 1150px) 100vw, 65vw"
+        />
       </section>
 
       <section className="login-side">

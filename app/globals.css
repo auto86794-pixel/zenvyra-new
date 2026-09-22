@@ -70,6 +70,11 @@ button {
     linear-gradient(135deg, #fff8f5 0%, #fce9e3 52%, #f2e6f6 100%);
 }
 
+.welcome-hero-image {
+  object-fit: cover;
+  object-position: left center;
+}
+
 .hero-panel::after {
   content: "";
   position: absolute;
@@ -2614,6 +2619,10 @@ button {
     min-height: 760px;
   }
 
+  .welcome-hero-image {
+    object-position: 42% center;
+  }
+
   .login-side {
     min-height: auto;
     padding: 55px 24px 75px;
@@ -2893,7 +2902,11 @@ button {
 
   .hero-panel,
   .hero-content {
-    min-height: 710px;
+    min-height: 620px;
+  }
+
+  .welcome-hero-image {
+    object-position: 46% center;
   }
 
   .hero-content {
