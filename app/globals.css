@@ -4151,8 +4151,7 @@ button {
   }
 }
 
-/* Speed Fix 2: responsive landing artwork.
-   Mobile receives a dedicated 22 KB crop instead of the desktop composite. */
+/* SPEED FIX 2: only the correct hero asset is downloaded for the viewport. */
 .welcome-hero-picture {
   position: absolute;
   inset: 0;
@@ -4167,22 +4166,12 @@ button {
 }
 
 @media (max-width: 720px) {
-  .hero-panel {
-    min-height: 430px;
-    height: 52svh;
-    max-height: 560px;
-    border-right: 0;
+  .hero-panel,
+  .hero-content {
+    min-height: min(72vh, 620px);
   }
 
   .welcome-hero-picture .welcome-hero-image {
-    object-position: center 42%;
-  }
-
-  .hero-panel::after {
-    display: none;
-  }
-
-  .login-side {
-    padding: 28px 16px 48px;
+    object-position: center center;
   }
 }
