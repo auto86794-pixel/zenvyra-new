@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -12,6 +11,7 @@ import { supabase } from "@/lib/supabase/client";
 const Dashboard = dynamic(() => import("@/components/dashboard/Dashboard"), {
   loading: () => <AppLoading />,
 });
+
 const ProfileOnboarding = dynamic(
   () => import("@/components/onboarding/ProfileOnboarding"),
   { loading: () => <AppLoading /> },
@@ -190,14 +190,18 @@ export default function HomePage() {
   return (
     <main className="landing-shell">
       <section className="hero-panel">
-        <Image
-          src="/zenvyra-hero.webp"
-          alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
-          className="welcome-hero-image"
-          fill
-          priority
-          sizes="(max-width: 1150px) 100vw, 65vw"
-        />
+        <picture className="welcome-hero-picture">
+          <source media="(max-width: 720px)" srcSet="/zenvyra-hero-mobile.webp" />
+          <img
+            src="/zenvyra-hero.webp"
+            alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
+            className="welcome-hero-image"
+            width="1536"
+            height="1024"
+            fetchPriority="high"
+            decoding="async"
+          />
+        </picture>
       </section>
 
       <section className="login-side">
