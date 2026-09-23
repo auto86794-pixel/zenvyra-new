@@ -155,11 +155,14 @@ export default function AuthCard({
   };
 
   return (
-    <div className="login-card">
+    <div className="login-card premium-auth-card">
+      <button type="button" className="auth-back-button" onClick={() => window.history.back()} aria-label="Vissza">
+        <span aria-hidden="true">←</span><span>Vissza</span>
+      </button>
       <header className="login-heading">
         <h2>
           {mode === "register"
-            ? "Szia!"
+            ? "Csatlakozz hozzánk!"
             : mode === "forgot"
             ? "Új jelszó"
             : "Üdv újra!"}
@@ -169,7 +172,7 @@ export default function AuthCard({
 
         <p>
           {mode === "register"
-            ? "Hozd létre a fiókod pár lépésben."
+            ? "Hozz létre fiókot, és fedezd fel a Zenvyra minden lehetőségét."
             : mode === "forgot"
             ? "Add meg az e-mail címed, és segítünk visszalépni."
             : "Jelentkezz be, és folytasd, ahol abbahagytad."}
