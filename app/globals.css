@@ -4243,6 +4243,84 @@ button {
 /* =========================================================
    PREMIUM AUTH REFRESH — 2026-09
    ========================================================= */
+.welcome-cover {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #d7b6c4;
+}
+
+.welcome-cover-art {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100dvh * 989 / 1590);
+  height: 100dvh;
+  flex: none;
+  overflow: hidden;
+  box-shadow: 0 0 80px rgba(73, 42, 62, .24);
+}
+
+.welcome-cover-image {
+  object-fit: cover;
+}
+
+.welcome-cover-hotspot {
+  position: absolute;
+  z-index: 2;
+  left: 12.1%;
+  width: 75.6%;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.welcome-cover-guest {
+  top: 74%;
+  height: 7.1%;
+}
+
+.welcome-cover-auth {
+  top: 84.8%;
+  height: 7%;
+}
+
+.welcome-cover-hotspot:hover {
+  background: rgba(255, 255, 255, .10);
+}
+
+.welcome-cover-hotspot:focus-visible {
+  outline: 4px solid #fff;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 8px rgba(61, 111, 46, .5);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (min-aspect-ratio: 989 / 1590) {
+  .welcome-cover-art {
+    width: min(100vw, calc(100dvh * 989 / 1590));
+  }
+}
+
 .auth-hero-panel {
   position: relative;
 }

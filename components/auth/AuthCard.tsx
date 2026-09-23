@@ -12,6 +12,7 @@ type Props = {
   onModeChange: (mode: AuthMode) => void;
   onSuccess?: () => void | Promise<void>;
   onGuest?: () => void;
+  onBack?: () => void;
 };
 
 export default function AuthCard({
@@ -19,6 +20,7 @@ export default function AuthCard({
   onModeChange,
   onSuccess,
   onGuest,
+  onBack,
 }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
@@ -156,9 +158,17 @@ export default function AuthCard({
 
   return (
     <div className="login-card premium-auth-card">
-      <button type="button" className="auth-back-button" onClick={() => window.history.back()} aria-label="Vissza">
-        <span aria-hidden="true">←</span><span>Vissza</span>
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          className="auth-back-button"
+          onClick={onBack}
+          aria-label="Vissza a nyitóképernyőre"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Vissza</span>
+        </button>
+      )}
       <header className="login-heading">
         <h2>
           {mode === "register"

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -53,6 +54,7 @@ function normalizeProfile(data: ZenvyraProfile): ZenvyraProfile {
 
 export default function HomePage() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [showAuth, setShowAuth] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [guestMode, setGuestMode] = useState(false);
   const [authReady, setAuthReady] = useState(false);
@@ -150,6 +152,7 @@ export default function HomePage() {
   async function handleSignOut() {
     if (guestMode) {
       setGuestMode(false);
+      setShowAuth(false);
       setProfile(null);
       setProfileReady(true);
       return;
@@ -159,6 +162,10 @@ export default function HomePage() {
     setSession(null);
     setProfile(null);
     setProfileReady(true);
+  }
+
+  if (!authReady) {
+    return <AppLoading />;
   }
 
   if (session && !profileReady) {
@@ -184,6 +191,45 @@ export default function HomePage() {
         profile={profile}
         onProfileChange={setProfile}
       />
+    );
+  }
+
+  if (!showAuth) {
+    return (
+      <main className="welcome-cover" aria-label="Zenvyra nyitóképernyő">
+        <div className="welcome-cover-art">
+          <Image
+            src="/zenvyra-welcome.webp"
+            alt="Zenvyra – Test, lélek, egyensúly"
+            fill
+            priority
+            sizes="100vw"
+            className="welcome-cover-image"
+          />
+
+          <button
+            type="button"
+            className="welcome-cover-hotspot welcome-cover-guest"
+            onClick={() => {
+              setGuestMode(true);
+              setProfileReady(true);
+            }}
+          >
+            <span className="sr-only">Belépek regisztráció nélkül</span>
+          </button>
+
+          <button
+            type="button"
+            className="welcome-cover-hotspot welcome-cover-auth"
+            onClick={() => {
+              setAuthMode("login");
+              setShowAuth(true);
+            }}
+          >
+            <span className="sr-only">Belépés vagy regisztráció</span>
+          </button>
+        </div>
+      </main>
     );
   }
 
@@ -221,6 +267,10 @@ export default function HomePage() {
         <AuthCard
           mode={authMode}
           onModeChange={setAuthMode}
+          onBack={() => {
+            setAuthMode("login");
+            setShowAuth(false);
+          }}
           onSuccess={() => undefined}
           onGuest={() => {
             setGuestMode(true);
