@@ -164,10 +164,6 @@ export default function HomePage() {
     setProfileReady(true);
   }
 
-  if (!authReady) {
-    return <AppLoading />;
-  }
-
   if (session && !profileReady) {
     return <AppLoading />;
   }
