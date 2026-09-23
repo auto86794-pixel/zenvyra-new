@@ -1,13 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
-import AuthCard, { type AuthMode } from "@/components/auth/AuthCard";
+import type { AuthMode } from "@/components/auth/AuthCard";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
-import { supabase } from "@/lib/supabase/client";
+
+const AuthCard = dynamic(() => import("@/components/auth/AuthCard"), {
+  loading: () => null,
+});
 
 const Dashboard = dynamic(() => import("@/components/dashboard/Dashboard"), {
   loading: () => <AppLoading />,
@@ -65,39 +67,45 @@ export default function HomePage() {
 
   useEffect(() => {
     let mounted = true;
+    let unsubscribe: (() => void) | undefined;
 
     async function syncSession() {
-      const { data } = await supabase.auth.getSession();
+      // A nyitókép kapja az első hálózati/render prioritást.
+      // A Supabase SDK csak ezután töltődik be.
+      const { supabase } = await import("@/lib/supabase/client");
+      if (!mounted) return;
 
+      const { data } = await supabase.auth.getSession();
       if (!mounted) return;
 
       setSession(data.session);
       setProfileReady(data.session ? false : true);
       setAuthReady(true);
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (!mounted) return;
+
+        setSession(nextSession);
+        setGuestMode(false);
+        setProfile(null);
+        setProfileReady(nextSession ? false : true);
+        setAuthReady(true);
+
+        if (nextSession) {
+          setProfileReloadKey((current) => current + 1);
+        }
+      });
+
+      unsubscribe = () => subscription.unsubscribe();
     }
 
     void syncSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!mounted) return;
-
-      setSession(nextSession);
-      setGuestMode(false);
-      setProfile(null);
-      setProfileReady(nextSession ? false : true);
-      setAuthReady(true);
-
-      if (nextSession) {
-        setProfileReloadKey((current) => current + 1);
-      }
-    });
-
-
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, []);
 
@@ -122,6 +130,8 @@ export default function HomePage() {
 
     async function loadProfile() {
       setProfileReady(false);
+      const { supabase } = await import("@/lib/supabase/client");
+      if (!active) return;
 
       const { data, error } = await supabase
         .from("profiles")
@@ -158,6 +168,7 @@ export default function HomePage() {
       return;
     }
 
+    const { supabase } = await import("@/lib/supabase/client");
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
@@ -194,12 +205,13 @@ export default function HomePage() {
     return (
       <main className="welcome-cover" aria-label="Zenvyra nyitóképernyő">
         <div className="welcome-cover-art">
-          <Image
+          <img
             src="/zenvyra-welcome.webp"
             alt="Zenvyra – Test, lélek, egyensúly"
-            fill
-            priority
-            sizes="100vw"
+            width="989"
+            height="1590"
+            fetchPriority="high"
+            decoding="sync"
             className="welcome-cover-image"
           />
 

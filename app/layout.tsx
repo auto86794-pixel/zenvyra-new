@@ -40,6 +40,15 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="hu" className="h-full antialiased">
+      <head>
+        <link
+          rel="preload"
+          as="image"
+          href="/zenvyra-welcome.webp"
+          type="image/webp"
+          fetchPriority="high"
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

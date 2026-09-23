@@ -4399,3 +4399,11 @@ button {
   .login-button { min-height: 58px; border-radius: 18px; }
   .social-stack { gap: 10px; }
 }
+
+/* Welcome image: direct static asset, visible before app/auth work finishes. */
+.welcome-cover-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
