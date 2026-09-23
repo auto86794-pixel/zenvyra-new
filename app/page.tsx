@@ -56,6 +56,7 @@ export default function HomePage() {
   const [session, setSession] = useState<Session | null>(null);
   const [guestMode, setGuestMode] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
 
   const [profile, setProfile] = useState<ZenvyraProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
@@ -187,21 +188,50 @@ export default function HomePage() {
     );
   }
 
+  if (!showAuth) {
+    return (
+      <main className="welcome-cover">
+        <div className="welcome-cover-frame">
+          <img
+            src="/zenvyra-welcome.webp"
+            alt="Zenvyra – Test, lélek, egyensúly"
+            className="welcome-cover-image"
+            width="989"
+            height="1590"
+            fetchPriority="high"
+            decoding="async"
+          />
+          <button
+            type="button"
+            className="welcome-hotspot welcome-hotspot-guest"
+            aria-label="Belépek regisztráció nélkül"
+            onClick={() => {
+              setGuestMode(true);
+              setProfileReady(true);
+            }}
+          />
+          <button
+            type="button"
+            className="welcome-hotspot welcome-hotspot-auth"
+            aria-label="Belépés vagy regisztráció"
+            onClick={() => setShowAuth(true)}
+          />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="landing-shell">
       <section className="hero-panel">
         <picture className="welcome-hero-picture">
-          <source
-            media="(max-width: 720px)"
-            srcSet="/zenvyra-hero-mobile-clean.webp"
-          />
+          <source media="(max-width: 720px)" srcSet="/zenvyra-hero-mobile-clean.webp" />
           <img
             src="/zenvyra-hero.webp"
-            alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
+            alt="Zenvyra wellness"
             className="welcome-hero-image"
             width="1536"
             height="1024"
-            fetchPriority="high"
             decoding="async"
           />
         </picture>
@@ -213,6 +243,9 @@ export default function HomePage() {
             Munkamenet ellenőrzése…
           </p>
         )}
+        <button type="button" className="auth-back-to-cover" onClick={() => setShowAuth(false)}>
+          ← Vissza
+        </button>
         <AuthCard
           mode={authMode}
           onModeChange={setAuthMode}
