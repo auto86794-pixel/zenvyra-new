@@ -161,7 +161,7 @@ export default function HomePage() {
     setProfileReady(true);
   }
 
-  if (!authReady || (session && !profileReady)) {
+  if (session && !profileReady) {
     return <AppLoading />;
   }
 
@@ -191,7 +191,10 @@ export default function HomePage() {
     <main className="landing-shell">
       <section className="hero-panel">
         <picture className="welcome-hero-picture">
-          <source media="(max-width: 720px)" srcSet="/zenvyra-hero-mobile.webp" />
+          <source
+            media="(max-width: 720px)"
+            srcSet="/zenvyra-hero-mobile-clean.webp"
+          />
           <img
             src="/zenvyra-hero.webp"
             alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
@@ -205,6 +208,11 @@ export default function HomePage() {
       </section>
 
       <section className="login-side">
+        {!authReady && (
+          <p className="session-check" role="status" aria-live="polite">
+            Munkamenet ellenőrzése…
+          </p>
+        )}
         <AuthCard
           mode={authMode}
           onModeChange={setAuthMode}

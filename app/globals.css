@@ -266,6 +266,7 @@ button {
 }
 
 .login-side {
+  position: relative;
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -273,6 +274,17 @@ button {
   background:
     radial-gradient(circle at 100% 0%, rgba(190, 160, 228, 0.18), transparent 28%),
     radial-gradient(circle at 100% 100%, rgba(245, 186, 208, 0.28), transparent 30%);
+}
+
+.session-check {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 2;
+  margin: 0;
+  color: #756984;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .login-card {
@@ -2902,7 +2914,7 @@ button {
 
   .hero-panel,
   .hero-content {
-    min-height: 620px;
+    min-height: 240px;
   }
 
   .welcome-hero-image {
@@ -2953,20 +2965,72 @@ button {
   }
 
   .login-side {
-    padding: 30px 14px 48px;
+    padding: 20px 12px 32px;
   }
 
   .login-card {
-    padding: 32px 22px;
-    border-radius: 26px;
+    width: 100%;
+    max-width: calc(100vw - 24px);
+    padding: 24px 18px;
+    border-radius: 22px;
   }
 
   .login-heading h2 {
-    font-size: 49px;
+    font-size: 38px;
   }
 
   .login-heading p {
-    font-size: 18px;
+    font-size: 16px;
+  }
+
+  .accent-line {
+    margin: 12px 0;
+  }
+
+  .auth-tabs {
+    margin-top: 18px;
+    padding: 4px;
+  }
+
+  .auth-tabs button {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .login-form {
+    margin-top: 16px;
+  }
+
+  .field {
+    height: 56px;
+    margin-bottom: 12px;
+  }
+
+  .field input {
+    font-size: 16px;
+  }
+
+  .form-row {
+    margin: 8px 0 16px;
+  }
+
+  .login-button {
+    min-height: 56px;
+    font-size: 17px;
+  }
+
+  .divider {
+    margin: 20px 0;
+  }
+
+  .social-button,
+  .guest-button {
+    min-height: 52px;
+    font-size: 16px;
+  }
+
+  .register-row {
+    margin-top: 24px;
   }
 
   .form-row {
@@ -4168,10 +4232,10 @@ button {
 @media (max-width: 720px) {
   .hero-panel,
   .hero-content {
-    min-height: min(72vh, 620px);
+    min-height: clamp(210px, 29vh, 250px);
   }
 
   .welcome-hero-picture .welcome-hero-image {
-    object-position: center center;
+    object-position: center 18%;
   }
 }

@@ -12,8 +12,15 @@ export const metadata: Metadata = {
   applicationName: "Zenvyra",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/zenvyra-internal-logo.png",
-    apple: "/zenvyra-internal-logo.png",
+    icon: [
+      { url: "/icon.png", sizes: "64x64", type: "image/png" },
+      { url: "/zenvyra-icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: {
+      url: "/zenvyra-icon-180.png",
+      sizes: "180x180",
+      type: "image/png",
+    },
   },
   openGraph: {
     title: "Zenvyra – Test és lélek harmóniában",

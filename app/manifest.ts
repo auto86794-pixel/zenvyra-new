@@ -13,13 +13,13 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "hu",
     icons: [
       {
-        src: "/zenvyra-internal-logo.png",
-        sizes: "512x512",
+        src: "/zenvyra-icon-192.png",
+        sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/zenvyra-internal-logo.png",
+        src: "/zenvyra-icon-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
