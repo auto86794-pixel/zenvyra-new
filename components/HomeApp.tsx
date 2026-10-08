@@ -1,0 +1,294 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import { useEffect, useState, type ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
+
+import type { AuthMode } from "@/components/auth/AuthCard";
+import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
+
+const AuthCard = dynamic(() => import("@/components/auth/AuthCard"), {
+  loading: () => null,
+});
+
+const Dashboard = dynamic(() => import("@/components/dashboard/Dashboard"), {
+  loading: () => <AppLoading />,
+});
+
+const ProfileOnboarding = dynamic(
+  () => import("@/components/onboarding/ProfileOnboarding"),
+  { loading: () => <AppLoading /> },
+);
+
+function AppLoading() {
+  return (
+    <main className="auth-loading">
+      <div className="auth-loading-mark">✦</div>
+      <div>ZENVYRA</div>
+    </main>
+  );
+}
+
+const PROFILE_SELECT =
+  "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed";
+
+function normalizeProfile(data: ZenvyraProfile): ZenvyraProfile {
+  return {
+    ...data,
+    height_cm: data.height_cm === null ? null : Number(data.height_cm),
+    current_weight_kg:
+      data.current_weight_kg === null ? null : Number(data.current_weight_kg),
+    target_weight_kg:
+      data.target_weight_kg === null ? null : Number(data.target_weight_kg),
+    allergens: Array.isArray(data.allergens) ? data.allergens : [],
+    diet_type: data.diet_type ?? "omnivore",
+    disliked_ingredients: Array.isArray(data.disliked_ingredients)
+      ? data.disliked_ingredients
+      : [],
+    workout_minutes: data.workout_minutes ?? 20,
+    fitness_level: data.fitness_level ?? "beginner",
+    movement_limitations: Array.isArray(data.movement_limitations)
+      ? data.movement_limitations
+      : [],
+    onboarding_completed: data.onboarding_completed === true,
+  } as ZenvyraProfile;
+}
+
+export default function HomeApp({ children }: { children: ReactNode }) {
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [showAuth, setShowAuth] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [guestMode, setGuestMode] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+
+  const [profile, setProfile] = useState<ZenvyraProfile | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | undefined;
+
+    async function syncSession() {
+      // A nyitókép kapja az első hálózati/render prioritást.
+      // A Supabase SDK csak ezután töltődik be.
+      const { supabase } = await import("@/lib/supabase/client");
+      if (!mounted) return;
+
+      const { data } = await supabase.auth.getSession();
+      if (!mounted) return;
+
+      setSession(data.session);
+      setProfileReady(data.session ? false : true);
+      setAuthReady(true);
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (!mounted) return;
+
+        setSession(nextSession);
+        setGuestMode(false);
+        setProfile(null);
+        setProfileReady(nextSession ? false : true);
+        setAuthReady(true);
+
+        if (nextSession) {
+          setProfileReloadKey((current) => current + 1);
+        }
+      });
+
+      unsubscribe = () => subscription.unsubscribe();
+    }
+
+    void syncSession();
+
+    return () => {
+      mounted = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const sessionUserId = session?.user.id;
+
+  useEffect(() => {
+    let active = true;
+
+    if (!sessionUserId) {
+      queueMicrotask(() => {
+        if (!active) return;
+        setProfile(null);
+        setProfileReady(true);
+      });
+
+      return () => {
+        active = false;
+      };
+    }
+
+    const userId = sessionUserId;
+
+    async function loadProfile() {
+      setProfileReady(false);
+      const { supabase } = await import("@/lib/supabase/client");
+      if (!active) return;
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(PROFILE_SELECT)
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!active) return;
+
+      if (error) {
+        console.error("Profile load error:", error);
+        setProfile(null);
+        setProfileReady(true);
+        return;
+      }
+
+      setProfile(data ? normalizeProfile(data as ZenvyraProfile) : null);
+      setProfileReady(true);
+    }
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId, profileReloadKey]);
+
+  async function handleSignOut() {
+    if (guestMode) {
+      setGuestMode(false);
+      setShowAuth(false);
+      setProfile(null);
+      setProfileReady(true);
+      return;
+    }
+
+    const { supabase } = await import("@/lib/supabase/client");
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+    setProfileReady(true);
+  }
+
+  if (session && !profileReady) {
+    return <AppLoading />;
+  }
+
+  if (session && profileReady && !profile?.onboarding_completed) {
+    return (
+      <ProfileOnboarding
+        session={session}
+        initialProfile={profile}
+        onComplete={setProfile}
+      />
+    );
+  }
+
+  if (session || guestMode) {
+    return (
+      <Dashboard
+        onSignOut={handleSignOut}
+        session={session}
+        guestMode={guestMode}
+        profile={profile}
+        onProfileChange={setProfile}
+      />
+    );
+  }
+
+  if (!showAuth) {
+    return (
+      <main className="public-landing">
+      <section id="kezdes" className="welcome-cover" aria-label="Zenvyra nyitóképernyő">
+        <div className="welcome-cover-art">
+          <img
+            src="/zenvyra-welcome.webp"
+            alt="Zenvyra – Test, lélek, egyensúly"
+            width="989"
+            height="1590"
+            fetchPriority="high"
+            decoding="sync"
+            className="welcome-cover-image"
+          />
+
+          <button
+            type="button"
+            className="welcome-cover-hotspot welcome-cover-guest"
+            onClick={() => {
+              setGuestMode(true);
+              setProfileReady(true);
+            }}
+          >
+            <span className="sr-only">Belépek regisztráció nélkül</span>
+          </button>
+
+          <button
+            type="button"
+            className="welcome-cover-hotspot welcome-cover-auth"
+            onClick={() => {
+              setAuthMode("login");
+              setShowAuth(true);
+            }}
+          >
+            <span className="sr-only">Belépés vagy regisztráció</span>
+          </button>
+        </div>
+      </section>
+      {children}
+      </main>
+    );
+  }
+
+  return (
+    <main className="landing-shell">
+      <section className="hero-panel auth-hero-panel">
+        <picture className="welcome-hero-picture">
+          <source
+            media="(max-width: 720px)"
+            srcSet="/zenvyra-hero-mobile-clean.webp"
+          />
+          <img
+            src="/zenvyra-hero.webp"
+            alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
+            className="welcome-hero-image"
+            width="1536"
+            height="1024"
+            fetchPriority="high"
+            decoding="async"
+          />
+        </picture>
+        <div className="auth-hero-brand" aria-hidden="true">
+          <img src="/zenvyra-lotus.webp" alt="" width="72" height="72" />
+          <strong>ZENVYRA</strong>
+          <span>TEST • LÉLEK • EGYENSÚLY</span>
+        </div>
+      </section>
+
+      <section className="login-side auth-login-side">
+        {!authReady && (
+          <p className="session-check" role="status" aria-live="polite">
+            Munkamenet ellenőrzése…
+          </p>
+        )}
+        <AuthCard
+          mode={authMode}
+          onModeChange={setAuthMode}
+          onBack={() => {
+            setAuthMode("login");
+            setShowAuth(false);
+          }}
+          onSuccess={() => undefined}
+          onGuest={() => {
+            setGuestMode(true);
+            setProfileReady(true);
+          }}
+        />
+      </section>
+    </main>
+  );
+}

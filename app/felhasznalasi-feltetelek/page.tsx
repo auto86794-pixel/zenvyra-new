@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.zenvyra.hu/felhasznalasi-feltetelek" },
   title: "Felhasználási feltételek",
   description: "A Zenvyra használatának legfontosabb feltételei.",
 };

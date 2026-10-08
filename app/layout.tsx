@@ -4,11 +4,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.zenvyra.hu"),
   title: {
-    default: "Zenvyra – Test és lélek harmóniában",
+    default: "Zenvyra – Táplálkozás, mozgás és jóllét egy alkalmazásban",
     template: "%s | Zenvyra",
   },
   description:
-    "Személyre szabott támogatás táplálkozáshoz, mozgáshoz és a mindennapi jólléthez.",
+    "Ha életmódot váltanál, a Zenvyra segít megtenni az első lépéseket. Kövesd étkezéseidet, folyadékfogyasztásodat, mozgásodat és közérzetedet.",
+  twitter: { card: "summary_large_image", images: ["/zenvyra-hero.webp"] },
   applicationName: "Zenvyra",
   manifest: "/manifest.webmanifest",
   icons: {
@@ -23,12 +24,13 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "Zenvyra – Test és lélek harmóniában",
+    title: "Zenvyra – Táplálkozás, mozgás és jóllét egy alkalmazásban",
     description:
       "Táplálkozás, mozgás és közérzet egy könnyen követhető, személyre szabott rendszerben.",
     type: "website",
     locale: "hu_HU",
     siteName: "Zenvyra",
+    images: [{ url: "/zenvyra-hero.webp", width: 1536, height: 1024, alt: "Zenvyra – test, lélek, egyensúly" }],
   },
 };
 
