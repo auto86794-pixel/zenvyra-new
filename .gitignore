@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local dependency verification cache
+/.npm-cache/
+
+# Generated browser verification artifacts
+/tests/saving-mobile.png
+/tests/browser-saving-results.json

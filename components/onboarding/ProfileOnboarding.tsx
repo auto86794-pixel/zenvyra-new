@@ -1,8 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useRef } from "react";
 import type { Session } from "@supabase/supabase-js";
+
+import { createSaveLock } from "@/lib/saving/save-lock";
 
 import { supabase } from "@/lib/supabase/client";
 
@@ -140,6 +142,7 @@ export default function ProfileOnboarding({
     initialProfile?.movement_limitations?.join(", ") ?? ""
   );
 
+  const saveLock = useRef(createSaveLock());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -220,60 +223,73 @@ export default function ProfileOnboarding({
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const release = saveLock.current.acquire("profile");
+    if (!release) return;
 
-    if (!estimate) return;
+    try {
 
-    setBusy(true);
-    setMessage("");
 
-    const payload = {
-      id: session.user.id,
-      display_name: displayName.trim(),
-      sex,
-      age: Math.round(parseNumber(age)),
-      height_cm: parseNumber(height),
-      current_weight_kg: parseNumber(weight),
-      target_weight_kg: parseNumber(targetWeight),
-      goal,
-      activity_level: activity,
-      daily_calorie_goal: estimate.calories,
-      protein_target_g: estimate.protein,
-      carbs_target_g: estimate.carbs,
-      fat_target_g: estimate.fat,
-      allergens,
-      diet_type: dietType,
-      disliked_ingredients: splitList(dislikedIngredients),
-      workout_minutes: workoutMinutes,
-      fitness_level: fitnessLevel,
-      movement_limitations: splitList(movementLimitations),
-      onboarding_completed: true,
-      updated_at: new Date().toISOString(),
-    };
+      if (!estimate) return;
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .upsert(payload, { onConflict: "id" })
-      .select(
-        "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed"
-      )
-      .single();
+      setBusy(true);
+      setMessage("");
 
-    if (error || !data) {
-      setMessage("A profil mentése nem sikerült. Próbáld újra.");
+      const payload = {
+        id: session.user.id,
+        display_name: displayName.trim(),
+        sex,
+        age: Math.round(parseNumber(age)),
+        height_cm: parseNumber(height),
+        current_weight_kg: parseNumber(weight),
+        target_weight_kg: parseNumber(targetWeight),
+        goal,
+        activity_level: activity,
+        daily_calorie_goal: estimate.calories,
+        protein_target_g: estimate.protein,
+        carbs_target_g: estimate.carbs,
+        fat_target_g: estimate.fat,
+        allergens,
+        diet_type: dietType,
+        disliked_ingredients: splitList(dislikedIngredients),
+        workout_minutes: workoutMinutes,
+        fitness_level: fitnessLevel,
+        movement_limitations: splitList(movementLimitations),
+        onboarding_completed: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .upsert(payload, { onConflict: "id" })
+        .select(
+          "id, display_name, sex, age, height_cm, current_weight_kg, target_weight_kg, goal, activity_level, daily_calorie_goal, protein_target_g, carbs_target_g, fat_target_g, allergens, diet_type, disliked_ingredients, workout_minutes, fitness_level, movement_limitations, onboarding_completed"
+        )
+        .single();
+
+      if (error || !data) {
+        setMessage("A profil mentése nem sikerült. Próbáld újra.");
+        setBusy(false);
+        return;
+      }
+
+      onComplete({
+        ...data,
+        height_cm: data.height_cm === null ? null : Number(data.height_cm),
+        current_weight_kg:
+          data.current_weight_kg === null ? null : Number(data.current_weight_kg),
+        target_weight_kg:
+          data.target_weight_kg === null ? null : Number(data.target_weight_kg),
+      } as ZenvyraProfile);
+
       setBusy(false);
+
+    } catch {
+      setMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+      setBusy(false);
     }
-
-    onComplete({
-      ...data,
-      height_cm: data.height_cm === null ? null : Number(data.height_cm),
-      current_weight_kg:
-        data.current_weight_kg === null ? null : Number(data.current_weight_kg),
-      target_weight_kg:
-        data.target_weight_kg === null ? null : Number(data.target_weight_kg),
-    } as ZenvyraProfile);
-
-    setBusy(false);
   }
 
   return (

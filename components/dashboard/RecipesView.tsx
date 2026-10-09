@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { createSaveLock } from "@/lib/saving/save-lock";
+
+import { FormEvent, useMemo, useState, useRef } from "react";
 import type { PersonalPreferences } from "@/components/dashboard/PreferencesPanel";
 
 export type RecipeIngredient = {
@@ -464,7 +466,11 @@ export function ensureStarterRecipes(storageKey: string): Recipe[] {
 
     if (alreadyUpgraded) {
       const audited = savedRecipes.length > 0 ? savedRecipes : starterRecipes;
-      window.localStorage.setItem(storageKey, JSON.stringify(audited));
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(audited));
+      } catch {
+        // Existing recipes remain usable even when storage has become read-only.
+      }
       return audited;
     }
 
@@ -477,12 +483,15 @@ export function ensureStarterRecipes(storageKey: string): Recipe[] {
       auditRecipeAllergens,
     );
 
-    window.localStorage.setItem(storageKey, JSON.stringify(merged));
-    window.localStorage.setItem(seedKey, "1");
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(merged));
+      window.localStorage.setItem(seedKey, "1");
+    } catch {
+      // Preserve the loaded custom recipes when a storage write fails.
+    }
     return merged;
   } catch {
-    window.localStorage.setItem(storageKey, JSON.stringify(starterRecipes));
-    window.localStorage.setItem(seedKey, "1");
+    // Reading or writing storage may be blocked; never retry the failing write.
     return starterRecipes;
   }
 }
@@ -512,6 +521,7 @@ export default function RecipesView({
   onOpenShopping,
   preferences,
 }: Props) {
+  const saveLock = useRef(createSaveLock());
   const [detailRecipe, setDetailRecipe] = useState<Recipe | null>(null);
   const [shoppingAddedRecipeId, setShoppingAddedRecipeId] = useState<string | null>(null);
 
@@ -533,9 +543,6 @@ export default function RecipesView({
   const [selectedPortions, setSelectedPortions] = useState<Record<string, number>>({});
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(recipes));
-  }, [recipes, storageKey]);
 
   const formPreview = useMemo(() => {
     const portionCount = Math.max(1, numberValue(servings) || 1);
@@ -562,53 +569,65 @@ export default function RecipesView({
 
   function saveRecipe(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const portionCount = Math.round(numberValue(servings));
-    const parsedKcal = numberValue(kcal);
-    const parsedProtein = numberValue(protein);
-    const parsedCarbs = numberValue(carbs);
-    const parsedFat = numberValue(fat);
-    const ingredients = ingredientLines
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line, index) => {
-        const [ingredientName, ...amountParts] = line.split(/\s[-–—]\s/);
-        return {
-          id: `ingredient-${Date.now()}-${index}`,
-          name: ingredientName.trim(),
-          amount: amountParts.join(" – ").trim(),
-        };
+    const release = saveLock.current.acquire("recipe");
+    if (!release) return;
+    try {
+
+      const portionCount = Math.round(numberValue(servings));
+      const parsedKcal = numberValue(kcal);
+      const parsedProtein = numberValue(protein);
+      const parsedCarbs = numberValue(carbs);
+      const parsedFat = numberValue(fat);
+      const ingredients = ingredientLines
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          const [ingredientName, ...amountParts] = line.split(/\s[-–—]\s/);
+          return {
+            id: `ingredient-${Date.now()}-${index}`,
+            name: ingredientName.trim(),
+            amount: amountParts.join(" – ").trim(),
+          };
+        });
+
+      if (
+        !name.trim() ||
+        !Number.isFinite(portionCount) ||
+        portionCount < 1 ||
+        !Number.isFinite(parsedKcal) ||
+        parsedKcal <= 0 ||
+        [parsedProtein, parsedCarbs, parsedFat].some((value) => !Number.isFinite(value) || value < 0) ||
+        ingredients.length === 0
+      ) {
+        setMessage("Töltsd ki a recept nevét, adagját, tápértékeit és legalább egy hozzávalót.");
+        return;
+      }
+
+      const recipe: Recipe = auditRecipeAllergens({
+        id: `recipe-${Date.now()}`,
+        name: name.trim(),
+        servings: portionCount,
+        kcal: parsedKcal,
+        protein: parsedProtein,
+        carbs: parsedCarbs,
+        fat: parsedFat,
+        ingredients,
+        dietStyle,
+        allergens: recipeAllergens,
       });
+      const nextRecipes = [recipe, ...recipes];
+      window.localStorage.setItem(storageKey, JSON.stringify(nextRecipes));
+      setRecipes(nextRecipes);
+      setSelectedPortions((current) => ({ ...current, [recipe.id]: 1 }));
+      setMessage("A recept elmentve.");
+      resetForm();
 
-    if (
-      !name.trim() ||
-      !Number.isFinite(portionCount) ||
-      portionCount < 1 ||
-      !Number.isFinite(parsedKcal) ||
-      parsedKcal <= 0 ||
-      [parsedProtein, parsedCarbs, parsedFat].some((value) => !Number.isFinite(value) || value < 0) ||
-      ingredients.length === 0
-    ) {
-      setMessage("Töltsd ki a recept nevét, adagját, tápértékeit és legalább egy hozzávalót.");
-      return;
+    } catch {
+      setMessage("A recept mentése nem sikerült. Ellenőrizd, hogy a böngésző engedélyezi-e a helyi tárolást. Az űrlap adatai megmaradtak.");
+    } finally {
+      release();
     }
-
-    const recipe: Recipe = auditRecipeAllergens({
-      id: `recipe-${Date.now()}`,
-      name: name.trim(),
-      servings: portionCount,
-      kcal: parsedKcal,
-      protein: parsedProtein,
-      carbs: parsedCarbs,
-      fat: parsedFat,
-      ingredients,
-      dietStyle,
-      allergens: recipeAllergens,
-    });
-    setRecipes((current) => [recipe, ...current]);
-    setSelectedPortions((current) => ({ ...current, [recipe.id]: 1 }));
-    setMessage("A recept elmentve.");
-    resetForm();
   }
 
   const compatibleRecipes = useMemo(() => recipes.filter((recipe) => {

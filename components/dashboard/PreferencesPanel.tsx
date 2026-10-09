@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useRef } from "react";
 import type { Session } from "@supabase/supabase-js";
+
+import { createSaveLock } from "@/lib/saving/save-lock";
 
 import { supabase } from "@/lib/supabase/client";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
@@ -80,6 +82,7 @@ export default function PreferencesPanel({
   const [movementLimitations, setMovementLimitations] = useState(
     joinList(initial.movement_limitations),
   );
+  const saveLock = useRef(createSaveLock());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -110,47 +113,62 @@ export default function PreferencesPanel({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
-    setMessage("");
+    const release = saveLock.current.acquire("preferences");
+    if (!release) return;
 
-    const preferences: PersonalPreferences = {
-      diet_type: dietType,
-      allergens,
-      disliked_ingredients: splitList(disliked),
-      workout_minutes: workoutMinutes,
-      fitness_level: fitnessLevel,
-      movement_limitations: splitList(movementLimitations),
-    };
+    try {
 
-    if (guestMode || !session?.user) {
-      window.localStorage.setItem(
-        "zenvyra-personal-preferences",
-        JSON.stringify(preferences),
-      );
+      setBusy(true);
+      setMessage("");
+
+      const preferences: PersonalPreferences = {
+        diet_type: dietType,
+        allergens,
+        disliked_ingredients: splitList(disliked),
+        workout_minutes: workoutMinutes,
+        fitness_level: fitnessLevel,
+        movement_limitations: splitList(movementLimitations),
+      };
+
+      if (guestMode || !session?.user) {
+        window.localStorage.setItem(
+          "zenvyra-personal-preferences",
+          JSON.stringify(preferences),
+        );
+        onChange(preferences);
+        setMessage("✓ Profil elmentve ezen az eszközön.");
+        setBusy(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .update({
+          ...preferences,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", session.user.id)
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        console.error("Preferences save error:", error);
+        setMessage("A profil mentése nem sikerült. Próbáld újra.");
+        setBusy(false);
+        return;
+      }
+
       onChange(preferences);
-      setMessage("✓ Profil elmentve ezen az eszközön.");
+      setMessage("✓ Profil elmentve");
       setBusy(false);
+
+    } catch {
+      setMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
-    }
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        ...preferences,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", session.user.id);
-
-    if (error) {
-      console.error("Preferences save error:", error);
-      setMessage("A profil mentése nem sikerült. Próbáld újra.");
+    } finally {
+      release();
       setBusy(false);
-      return;
     }
-
-    onChange(preferences);
-    setMessage("✓ Profil elmentve");
-    setBusy(false);
   }
 
   return (

@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const {chromium}=await import(process.env.ZENVYRA_PLAYWRIGHT_MODULE ?? 'playwright');
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+const report=[];
+const page=await browser.newPage({viewport:{width:390,height:844}});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const base=process.env.ZENVYRA_TEST_URL ?? 'http://localhost:3020/';
+async function enterGuest(target=page){await target.goto(base,{waitUntil:'networkidle'});await target.getByRole('button',{name:'Belépek regisztráció nélkül',exact:true}).click();await target.getByText('Az itt látható értékek próbaadatok.',{exact:true}).waitFor();}
+async function navigate(name,target=page){await target.getByRole('button',{name:'Menü megnyitása',exact:true}).click();await target.locator('#dashboard-mobile-navigation').getByRole('button',{name:new RegExp(name+'$')}).click();}
+async function state(){return page.evaluate(()=>JSON.parse(localStorage.getItem('zenvyra_dashboard_v1')));}
+try {
+ await enterGuest();
+ await page.getByRole('button',{name:'+200',exact:true}).dblclick();
+ await page.waitForFunction(()=>JSON.parse(localStorage.getItem('zenvyra_dashboard_v1'))?.water===1400);
+ report.push('Mobil: dupla vízkattintás után csak +200 ml mentődött.');
+ await enterGuest();assert.equal((await state()).water,1400);report.push('Újratöltés: a vendégadat megmaradt.');
+ await navigate('Közérzet');
+ await page.locator('.mood-scale button').filter({hasText:/^5$/}).click();
+ await page.getByRole('button',{name:'Jó',exact:true}).click();
+ await page.getByRole('button',{name:'Magas',exact:true}).click();
+ await page.waitForFunction(()=>{const s=JSON.parse(localStorage.getItem('zenvyra_dashboard_v1'));return s.mood===5&&s.energyLevel==='Jó'&&s.stressLevel==='Magas';});
+ report.push('Mobil: gyors hangulat-, energia- és stresszváltozás mind megmaradt.');
+ await navigate('Étkezések');await page.getByRole('button',{name:'＋ Új étkezés',exact:true}).click();
+ const dialog=page.getByRole('dialog');
+ await dialog.getByLabel('Keress egy ételt',{exact:true}).fill('Böngészős tesztétel');
+ await dialog.getByLabel('Kalória',{exact:true}).fill('200');
+ await dialog.getByLabel('Fehérje (g)',{exact:true}).fill('hibás');
+ await dialog.getByRole('button',{name:'Étkezés mentése',exact:true}).click();
+ await dialog.getByRole('alert').filter({hasText:'tápértékek'}).waitFor();
+ assert.equal(await dialog.getByLabel('Keress egy ételt',{exact:true}).inputValue(),'Böngészős tesztétel');
+ report.push('Mobil: hibás tápértéknél látható hiba, az űrlap adatai megmaradtak.');
+ await dialog.getByLabel('Fehérje (g)',{exact:true}).fill('12');
+ // Wait out the intentional double-click cooldown after the rejected submit.
+ await page.waitForTimeout(450);
+ await dialog.locator('form').evaluate(form=>{form.requestSubmit();form.requestSubmit();});
+ await dialog.waitFor({state:'hidden'});
+ assert.equal((await state()).meals.filter(m=>m.food==='Böngészős tesztétel').length,1);
+ report.push('Mobil: dupla étkezésbeküldésből pontosan egy bejegyzés lett.');
+ await navigate('Haladás');await page.getByRole('textbox',{name:'Testsúly kilogrammban'}).fill('nem szám');
+ await page.locator('.weight-entry').getByRole('button',{name:'Mentés',exact:true}).click();
+ await page.getByRole('alert').filter({hasText:'30 és 250'}).waitFor();report.push('Mobil: hibás testsúly látható hibajelzést kap.');
+ await navigate('Profil');await page.getByRole('button',{name:'Profil mentése',exact:true}).click();
+ await page.getByText('✓ Profil elmentve ezen az eszközön.',{exact:true}).waitFor();
+ report.push('Mobil: helyi profilmentés sikeres.');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ report.push('Mobil: nincs vízszintes túlcsordulás.');
+ await page.screenshot({path:'tests/saving-mobile.png',fullPage:true});
+ const blocked=await browser.newPage({viewport:{width:390,height:844}});const blockedErrors=[];blocked.on('pageerror',e=>blockedErrors.push(e.message));
+ await blocked.addInitScript(()=>{Storage.prototype.setItem=function(){throw new DOMException('Test quota','QuotaExceededError');};});
+ await enterGuest(blocked);
+ await blocked.getByRole('alert').filter({hasText:'helyi mentés nem sikerült'}).waitFor();
+ assert.deepEqual(blockedErrors,[]);report.push('Tiltott helyi tárolás: látható hiba, a felület nem omlik össze.');
+ await navigate('Profil',blocked);
+ await blocked.getByRole('button',{name:'Profil mentése',exact:true}).click();
+ await blocked.getByText('A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.',{exact:true}).waitFor();
+ assert.equal(await blocked.getByRole('button',{name:'Profil mentése',exact:true}).isEnabled(),true);
+ report.push('Tiltott helyi tárolás: profilhiba után a mentés gomb újra használható.');
+ await navigate('Receptek',blocked);
+ await blocked.getByRole('button',{name:'＋ Új recept',exact:true}).click();
+ await blocked.getByLabel('Recept neve',{exact:true}).fill('Megőrzött tesztrecept');
+ await blocked.getByLabel('Teljes kalória',{exact:true}).fill('400');
+ await blocked.getByLabel('Teljes fehérje',{exact:true}).fill('20');
+ await blocked.getByLabel('Teljes szénhidrát',{exact:true}).fill('50');
+ await blocked.getByLabel('Teljes zsír',{exact:true}).fill('10');
+ await blocked.getByLabel('Hozzávalók — soronként egy',{exact:true}).fill('Zab – 100 g');
+ await blocked.getByRole('button',{name:'Recept mentése',exact:true}).click();
+ await blocked.getByText(/A recept mentése nem sikerült/).waitFor();
+ assert.equal(await blocked.getByLabel('Recept neve',{exact:true}).inputValue(),'Megőrzött tesztrecept');
+ assert.deepEqual(blockedErrors,[]);report.push('Tiltott helyi tárolás: a recept hibajelzést kap, az űrlap kitöltése megmarad.');
+ await blocked.close();
+ await page.setViewportSize({width:1440,height:900});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ report.push('Asztali: nincs vízszintes túlcsordulás.');
+ assert.deepEqual(errors,[]);report.push('Böngésző: nincs kezeletlen JavaScript-hiba.');
+ console.log(JSON.stringify(report,null,2));
+ fs.writeFileSync('tests/browser-saving-results.json',JSON.stringify({date:new Date().toISOString(),mode:'guest-local-browser',checks:report,errors},null,2));
+} finally {await browser.close();}

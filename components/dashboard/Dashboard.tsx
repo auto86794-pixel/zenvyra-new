@@ -1,8 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, useRef } from "react";
 import type { Session } from "@supabase/supabase-js";
+
+import { createSaveLock } from "@/lib/saving/save-lock";
 
 import { supabase } from "@/lib/supabase/client";
 import type { ZenvyraProfile } from "@/components/onboarding/ProfileOnboarding";
@@ -296,11 +298,13 @@ function saveAssistantPlan(
 ) {
   if (typeof window === "undefined") return;
 
-  const current = loadAssistantPlan(storageKey);
-  window.localStorage.setItem(
-    storageKey,
-    JSON.stringify({ ...current, ...patch }),
-  );
+  try {
+    const current = loadAssistantPlan(storageKey);
+    window.localStorage.setItem(storageKey, JSON.stringify({ ...current, ...patch }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type ShoppingItem = {
@@ -771,6 +775,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   const [mealModalOpen, setMealModalOpen] = useState(false);
   const [quickModalOpen, setQuickModalOpen] = useState(false);
   const [cloudReady, setCloudReady] = useState(guestMode || !session);
+  const saveLock = useRef(createSaveLock());
+  const wellbeingSaveQueue = useRef(Promise.resolve());
+  const savedWellbeing = useRef<{
+    mood: number;
+    energyLevel: "Alacsony" | "Közepes" | "Jó" | null;
+    stressLevel: "Alacsony" | "Közepes" | "Magas" | null;
+    note: string;
+  } | null>(null);
   const [cloudMessage, setCloudMessage] = useState("");
   const [shoppingNotice, setShoppingNotice] = useState("");
   const [morningMovementTime, setMorningMovementTime] =
@@ -831,7 +843,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       if (guestMode || !session?.user) {
         if (typeof window === "undefined") return;
 
-        try {
+
+    try {
           const saved = JSON.parse(
             window.localStorage.getItem(serviceProviderStorageKey) ?? "[]",
           ) as ServiceProvider[];
@@ -1008,18 +1021,18 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   function chooseMorningMovementTime(time: AssistantMovementTime) {
     setMorningMovementTime(time);
-    saveAssistantPlan(assistantPlanStorageKey, {
+    if (!saveAssistantPlan(assistantPlanStorageKey, {
       movementDate: currentDateKey,
       movementTime: time,
-    });
+    })) setCloudMessage("A helyi mentés nem sikerült. Az adatok most csak a megnyitott lapon érhetők el; ellenőrizd a böngésző tárolási beállításait.");
   }
 
   function chooseTomorrowStart(choice: AssistantStartChoice) {
     setTomorrowStart(choice);
-    saveAssistantPlan(assistantPlanStorageKey, {
+    if (!saveAssistantPlan(assistantPlanStorageKey, {
       tomorrowDate: nextLocalDateKey(now),
       tomorrowStart: choice,
-    });
+    })) setCloudMessage("A helyi mentés nem sikerült. Az adatok most csak a megnyitott lapon érhetők el; ellenőrizd a böngésző tárolási beállításait.");
   }
 
   function handleErrandRequest(event: FormEvent<HTMLFormElement>) {
@@ -1120,63 +1133,75 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   async function saveErrandProvider(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!errandResult) return;
+    const release = saveLock.current.acquire("provider");
+    if (!release) return;
+    try {
 
-    const name = providerName.trim();
-    const phone = providerPhone.trim();
-    if (!name || !phone) return;
+      if (!errandResult) return;
 
-    setServiceProviderMessage("");
+      const name = providerName.trim();
+      const phone = providerPhone.trim();
+      if (!name || !phone) return;
 
-    if (guestMode || !session?.user) {
-      const provider: ServiceProvider = {
-        id: `${errandResult.service.toLocaleLowerCase("hu")}-${Date.now()}`,
-        category: errandResult.service,
-        name,
-        phone,
+      setServiceProviderMessage("");
+
+      if (guestMode || !session?.user) {
+        const provider: ServiceProvider = {
+          id: `${errandResult.service.toLocaleLowerCase("hu")}-${Date.now()}`,
+          category: errandResult.service,
+          name,
+          phone,
+        };
+
+        const next = [...serviceProviders, provider];
+
+        setServiceProviders(next);
+        setSelectedProviderId(provider.id);
+        window.localStorage.setItem(serviceProviderStorageKey, JSON.stringify(next));
+        setErrandConfirmation(
+          `Rendben. ${name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
+        );
+        return;
+      }
+
+      const result = await supabase
+        .from("service_providers")
+        .insert({
+          user_id: session.user.id,
+          category: errandResult.service,
+          name,
+          phone,
+          is_favorite: true,
+          updated_at: new Date().toISOString(),
+        })
+        .select("id, category, name, phone")
+        .single();
+
+      if (result.error || !result.data) {
+        setServiceProviderMessage("A szolgáltató mentése nem sikerült. Próbáld újra.");
+        return;
+      }
+
+      const savedProvider: ServiceProvider = {
+        id: result.data.id,
+        category: result.data.category,
+        name: result.data.name,
+        phone: result.data.phone ?? "",
       };
 
-      const next = [...serviceProviders, provider];
-
-      setServiceProviders(next);
-      setSelectedProviderId(provider.id);
-      window.localStorage.setItem(serviceProviderStorageKey, JSON.stringify(next));
+      setServiceProviders((current) => [...current, savedProvider]);
+      setSelectedProviderId(savedProvider.id);
       setErrandConfirmation(
         `Rendben. ${name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
       );
+
+    } catch {
+      setServiceProviderMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+
     }
-
-    const result = await supabase
-      .from("service_providers")
-      .insert({
-        user_id: session.user.id,
-        category: errandResult.service,
-        name,
-        phone,
-        is_favorite: true,
-        updated_at: new Date().toISOString(),
-      })
-      .select("id, category, name, phone")
-      .single();
-
-    if (result.error || !result.data) {
-      setServiceProviderMessage("A szolgáltató mentése nem sikerült. Próbáld újra.");
-      return;
-    }
-
-    const savedProvider: ServiceProvider = {
-      id: result.data.id,
-      category: result.data.category,
-      name: result.data.name,
-      phone: result.data.phone ?? "",
-    };
-
-    setServiceProviders((current) => [...current, savedProvider]);
-    setSelectedProviderId(savedProvider.id);
-    setErrandConfirmation(
-      `Rendben. ${name} szolgáltatóhoz szeretnél időpontot ${errandResult.dateText.toLocaleLowerCase("hu")} ${errandResult.timeText.toLocaleLowerCase("hu")}.`,
-    );
   }
 
   function chooseErrandTimeSlot(slot: ErrandTimeSlot) {
@@ -1199,60 +1224,72 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   async function approveErrandRequest() {
-    if (!errandResult || !errandTimeSlot || !providerName.trim()) return;
+    const release = saveLock.current.acquire("request");
+    if (!release) return;
 
-    setErrandRequestSaving(true);
-    setErrandRequestSaveMessage("");
+    try {
+      if (!errandResult || !errandTimeSlot || !providerName.trim()) return;
 
-    if (guestMode || !session) {
-      setErrandRequestApproved(true);
+      setErrandRequestSaving(true);
+      setErrandRequestSaveMessage("");
+
+      if (guestMode || !session) {
+        setErrandRequestApproved(true);
+        setErrandRequestSaving(false);
+        setErrandRequestSaveMessage(
+          "Vendég módban a kérés csak ezen az eszközön használható. Bejelentkezve a Zenvyra a felhőbe is elmenti.",
+        );
+        return;
+      }
+
+      const provider = serviceProviders.find(
+        (item) => item.id === selectedProviderId,
+      ) ?? serviceProviders.find(
+        (item) =>
+          item.category === errandResult.service &&
+          item.name === providerName.trim(),
+      );
+
+      const result = await supabase
+        .from("appointment_requests")
+        .insert({
+          user_id: session.user.id,
+          provider_id: provider?.id ?? null,
+          service: errandResult.service,
+          desired_date_text: errandResult.dateText,
+          desired_time_window: errandTimeSlot,
+          request_message: buildErrandMessage(),
+          status: "approved",
+          updated_at: new Date().toISOString(),
+        })
+        .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+        .single();
+
       setErrandRequestSaving(false);
+
+      if (result.error || !result.data) {
+        setErrandRequestSaveMessage(
+          "A kérés mentése nem sikerült. Próbáld újra.",
+        );
+        return;
+      }
+
+      setAppointmentRequests((current) => [
+        result.data as AppointmentRequest,
+        ...current.filter((item) => item.id !== result.data.id),
+      ].slice(0, 5));
+      setErrandRequestApproved(true);
       setErrandRequestSaveMessage(
-        "Vendég módban a kérés csak ezen az eszközön használható. Bejelentkezve a Zenvyra a felhőbe is elmenti.",
+        "✓ Elmentve a Zenvyra intézendő kérései közé.",
       );
+
+    } catch {
+      setErrandRequestSaveMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+      setErrandRequestSaving(false);
     }
-
-    const provider = serviceProviders.find(
-      (item) => item.id === selectedProviderId,
-    ) ?? serviceProviders.find(
-      (item) =>
-        item.category === errandResult.service &&
-        item.name === providerName.trim(),
-    );
-
-    const result = await supabase
-      .from("appointment_requests")
-      .insert({
-        user_id: session.user.id,
-        provider_id: provider?.id ?? null,
-        service: errandResult.service,
-        desired_date_text: errandResult.dateText,
-        desired_time_window: errandTimeSlot,
-        request_message: buildErrandMessage(),
-        status: "approved",
-        updated_at: new Date().toISOString(),
-      })
-      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
-      .single();
-
-    setErrandRequestSaving(false);
-
-    if (result.error || !result.data) {
-      setErrandRequestSaveMessage(
-        "A kérés mentése nem sikerült. Próbáld újra.",
-      );
-      return;
-    }
-
-    setAppointmentRequests((current) => [
-      result.data as AppointmentRequest,
-      ...current.filter((item) => item.id !== result.data.id),
-    ].slice(0, 5));
-    setErrandRequestApproved(true);
-    setErrandRequestSaveMessage(
-      "✓ Elmentve a Zenvyra intézendő kérései közé.",
-    );
   }
 
   function openAppointmentSms(request: AppointmentRequest) {
@@ -1279,79 +1316,105 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   async function advanceAppointmentRequestStatus(request: AppointmentRequest) {
-    if (guestMode || !session?.user) return;
+    const release = saveLock.current.acquire(`appointment:${request.id}`);
+    if (!release) return;
 
-    const nextStatus: Partial<Record<AppointmentRequest["status"], AppointmentRequest["status"]>> = {
-      approved: "sent",
-      sent: "replied",
-      replied: "confirmed",
-    };
+    try {
+      if (guestMode || !session?.user) return;
 
-    const status = nextStatus[request.status];
-    if (!status) return;
+      const nextStatus: Partial<Record<AppointmentRequest["status"], AppointmentRequest["status"]>> = {
+        approved: "sent",
+        sent: "replied",
+        replied: "confirmed",
+      };
 
-    setAppointmentStatusSavingId(request.id);
-    setAppointmentRequestsMessage("");
+      const status = nextStatus[request.status];
+      if (!status) return;
 
-    const result = await supabase
-      .from("appointment_requests")
-      .update({
-        status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", request.id)
-      .eq("user_id", session.user.id)
-      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
-      .single();
+      setAppointmentStatusSavingId(request.id);
+      setAppointmentRequestsMessage("");
 
-    setAppointmentStatusSavingId(null);
+      const result = await supabase
+        .from("appointment_requests")
+        .update({
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.id)
+        .eq("user_id", session.user.id)
+        .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+        .single();
 
-    if (result.error || !result.data) {
-      setAppointmentRequestsMessage("A státusz frissítése nem sikerült. Próbáld újra.");
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
+
+      if (result.error || !result.data) {
+        setAppointmentRequestsMessage("A státusz frissítése nem sikerült. Próbáld újra.");
+        return;
+      }
+
+      setAppointmentRequests((current) =>
+        current.map((item) =>
+          item.id === request.id ? (result.data as AppointmentRequest) : item,
+        ),
+      );
+
+    } catch {
+      setAppointmentRequestsMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
-    }
+    } finally {
+      release();
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
 
-    setAppointmentRequests((current) =>
-      current.map((item) =>
-        item.id === request.id ? (result.data as AppointmentRequest) : item,
-      ),
-    );
+    }
   }
 
   async function saveAppointmentReply(request: AppointmentRequest) {
-    if (guestMode || !session?.user) return;
+    const release = saveLock.current.acquire(`appointment:${request.id}`);
+    if (!release) return;
 
-    const reply = (appointmentReplyDrafts[request.id] ?? request.provider_reply ?? "").trim();
-    if (!reply) {
-      setAppointmentRequestsMessage("Írd be röviden, mit válaszolt a szolgáltató.");
+    try {
+      if (guestMode || !session?.user) return;
+
+      const reply = (appointmentReplyDrafts[request.id] ?? request.provider_reply ?? "").trim();
+      if (!reply) {
+        setAppointmentRequestsMessage("Írd be röviden, mit válaszolt a szolgáltató.");
+        return;
+      }
+
+      setAppointmentStatusSavingId(request.id);
+      setAppointmentRequestsMessage("");
+
+      const result = await supabase
+        .from("appointment_requests")
+        .update({
+          provider_reply: reply,
+          status: "replied",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.id)
+        .eq("user_id", session.user.id)
+        .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+        .single();
+
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
+
+      if (result.error || !result.data) {
+        setAppointmentRequestsMessage("A válasz mentése nem sikerült. Próbáld újra.");
+        return;
+      }
+
+      setAppointmentRequests((current) =>
+        current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
+      );
+
+    } catch {
+      setAppointmentRequestsMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
+
     }
-
-    setAppointmentStatusSavingId(request.id);
-    setAppointmentRequestsMessage("");
-
-    const result = await supabase
-      .from("appointment_requests")
-      .update({
-        provider_reply: reply,
-        status: "replied",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", request.id)
-      .eq("user_id", session.user.id)
-      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
-      .single();
-
-    setAppointmentStatusSavingId(null);
-
-    if (result.error || !result.data) {
-      setAppointmentRequestsMessage("A válasz mentése nem sikerült. Próbáld újra.");
-      return;
-    }
-
-    setAppointmentRequests((current) =>
-      current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
-    );
   }
 
   function resolveAppointmentStart(request: AppointmentRequest) {
@@ -1441,39 +1504,52 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   async function confirmAppointmentTime(request: AppointmentRequest) {
-    if (guestMode || !session?.user) return;
+    const release = saveLock.current.acquire(`appointment:${request.id}`);
+    if (!release) return;
 
-    const confirmedTime = (appointmentConfirmedTimeDrafts[request.id] ?? request.confirmed_time_text ?? "").trim();
-    if (!confirmedTime) {
-      setAppointmentRequestsMessage("Add meg a visszaigazolt pontos időpontot, például: 16:30.");
+    try {
+      if (guestMode || !session?.user) return;
+
+      const confirmedTime = (appointmentConfirmedTimeDrafts[request.id] ?? request.confirmed_time_text ?? "").trim();
+      if (!confirmedTime) {
+        setAppointmentRequestsMessage("Add meg a visszaigazolt pontos időpontot, például: 16:30.");
+        return;
+      }
+
+      setAppointmentStatusSavingId(request.id);
+      setAppointmentRequestsMessage("");
+
+      const result = await supabase
+        .from("appointment_requests")
+        .update({
+          confirmed_time_text: confirmedTime,
+          status: "confirmed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", request.id)
+        .eq("user_id", session.user.id)
+        .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
+        .single();
+
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
+
+      if (result.error || !result.data) {
+        setAppointmentRequestsMessage("Az időpont rögzítése nem sikerült. Próbáld újra.");
+        return;
+      }
+
+      setAppointmentRequests((current) =>
+        current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
+      );
+
+    } catch {
+      setAppointmentRequestsMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+      setAppointmentStatusSavingId((current) => current === request.id ? null : current);
+
     }
-
-    setAppointmentStatusSavingId(request.id);
-    setAppointmentRequestsMessage("");
-
-    const result = await supabase
-      .from("appointment_requests")
-      .update({
-        confirmed_time_text: confirmedTime,
-        status: "confirmed",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", request.id)
-      .eq("user_id", session.user.id)
-      .select("id, provider_id, service, desired_date_text, desired_time_window, request_message, status, created_at, provider_reply, confirmed_time_text")
-      .single();
-
-    setAppointmentStatusSavingId(null);
-
-    if (result.error || !result.data) {
-      setAppointmentRequestsMessage("Az időpont rögzítése nem sikerült. Próbáld újra.");
-      return;
-    }
-
-    setAppointmentRequests((current) =>
-      current.map((item) => item.id === request.id ? (result.data as AppointmentRequest) : item),
-    );
   }
 
   const matchingServiceProviders = errandResult
@@ -1816,6 +1892,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   useEffect(() => {
     if (!guestMode) return;
 
+    let active = true;
     const snapshot: SavedState = {
       meals,
       water,
@@ -1829,7 +1906,14 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
       wellbeingNote,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    } catch {
+      queueMicrotask(() => {
+        if (active) setCloudMessage("A helyi mentés nem sikerült. Az adatok most csak a megnyitott lapon érhetők el; ellenőrizd a böngésző tárolási beállításait.");
+      });
+    }
+    return () => { active = false; };
   }, [
     guestMode,
     meals,
@@ -1845,20 +1929,36 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   ]);
 
   useEffect(() => {
+    let active = true;
     const snapshot: StoredChallenges = {
       week: currentWeekKey(),
       progress: challengeProgress,
     };
-    window.localStorage.setItem(challengeStorageKey, JSON.stringify(snapshot));
+    try {
+      window.localStorage.setItem(challengeStorageKey, JSON.stringify(snapshot));
+    } catch {
+      queueMicrotask(() => {
+        if (active) setCloudMessage("A helyi mentés nem sikerült. Az adatok most csak a megnyitott lapon érhetők el; ellenőrizd a böngésző tárolási beállításait.");
+      });
+    }
+    return () => { active = false; };
   }, [challengeProgress, challengeStorageKey]);
 
   useEffect(() => {
+    let active = true;
     const snapshot: StoredShopping = {
       week: currentWeekKey(),
       checked: checkedShoppingItems,
       customItems: customShoppingItems,
     };
-    window.localStorage.setItem(shoppingStorageKey, JSON.stringify(snapshot));
+    try {
+      window.localStorage.setItem(shoppingStorageKey, JSON.stringify(snapshot));
+    } catch {
+      queueMicrotask(() => {
+        if (active) setCloudMessage("A helyi mentés nem sikerült. Az adatok most csak a megnyitott lapon érhetők el; ellenőrizd a böngésző tárolási beállításait.");
+      });
+    }
+    return () => { active = false; };
   }, [checkedShoppingItems, customShoppingItems, shoppingStorageKey]);
 
   function toggleChallengeDay(challengeId: ChallengeId, dayIndex: number) {
@@ -3133,10 +3233,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
         ];
 
         if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            recipeHistoryStorageKey,
-            JSON.stringify(next),
-          );
+          try {
+            window.localStorage.setItem(recipeHistoryStorageKey, JSON.stringify(next));
+          } catch {
+            // Recommendation history is optional; blocked storage must not crash the dashboard.
+          }
         }
 
         return next;
@@ -3495,22 +3596,35 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }, [profile?.current_weight_kg, profile?.target_weight_kg, weight]);
 
   async function addWater(amount: number) {
-    if (guestMode || !session?.user) {
+    const release = saveLock.current.acquire(`water:${amount}`);
+    if (!release) return;
+
+    try {
+      setCloudMessage("");
+      if (guestMode || !session?.user) {
+        setWater((current) => Math.min(4000, current + amount));
+        return;
+      }
+
+      const { error } = await supabase.from("water_logs").insert({
+        user_id: session.user.id,
+        amount_ml: amount,
+      });
+
+      if (error) {
+        setCloudMessage("A víz mentése nem sikerült.");
+        return;
+      }
+
       setWater((current) => Math.min(4000, current + amount));
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+
     }
-
-    const { error } = await supabase.from("water_logs").insert({
-      user_id: session.user.id,
-      amount_ml: amount,
-    });
-
-    if (error) {
-      setCloudMessage("A víz mentése nem sikerült.");
-      return;
-    }
-
-    setWater((current) => Math.min(4000, current + amount));
   }
 
   function energyToNumber(value: "Alacsony" | "Közepes" | "Jó" | null) {
@@ -3521,66 +3635,90 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     return value === "Alacsony" ? 1 : value === "Közepes" ? 3 : value === "Magas" ? 5 : null;
   }
 
-  async function saveWellbeingSnapshot(next: {
+  async function saveWellbeingSnapshot(next: Parameters<typeof persistWellbeingSnapshot>[0]) {
+    // Serialize partial edits so a fast energy/stress change cannot overwrite mood.
+    const pending = wellbeingSaveQueue.current.then(() => persistWellbeingSnapshot(next));
+    wellbeingSaveQueue.current = pending.catch(() => {});
+    await pending;
+  }
+
+  async function persistWellbeingSnapshot(next: {
     mood?: number;
     energyLevel?: "Alacsony" | "Közepes" | "Jó" | null;
     stressLevel?: "Alacsony" | "Közepes" | "Magas" | null;
     note?: string;
   }) {
-    const nextMood = next.mood ?? mood;
-    const nextEnergy =
-      next.energyLevel !== undefined ? next.energyLevel : energyLevel;
-    const nextStress =
-      next.stressLevel !== undefined ? next.stressLevel : stressLevel;
-    const nextNote = next.note !== undefined ? next.note : wellbeingNote;
+    try {
+      const previous = savedWellbeing.current ?? { mood, energyLevel, stressLevel, note: wellbeingNote };
+      const nextMood = next.mood ?? previous.mood;
+      const nextEnergy =
+        next.energyLevel !== undefined ? next.energyLevel : previous.energyLevel;
+      const nextStress =
+        next.stressLevel !== undefined ? next.stressLevel : previous.stressLevel;
+      const nextNote = next.note !== undefined ? next.note : previous.note;
 
-    setMood(nextMood);
-    setEnergyLevel(nextEnergy);
-    setStressLevel(nextStress);
-    setWellbeingNote(nextNote);
+      if (guestMode || !session?.user) {
+        savedWellbeing.current = { mood: nextMood, energyLevel: nextEnergy, stressLevel: nextStress, note: nextNote };
+        setMood(nextMood);
+        setEnergyLevel(nextEnergy);
+        setStressLevel(nextStress);
+        if (next.note !== undefined) setWellbeingNote((current) => current === next.note ? nextNote : current);
+        return;
+      }
 
-    if (guestMode || !session?.user) return;
+      const today = localDateKey();
 
-    const today = localDateKey();
+      const existing = await supabase
+        .from("wellbeing_logs")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .eq("logged_on", today)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    const existing = await supabase
-      .from("wellbeing_logs")
-      .select("id")
-      .eq("user_id", session.user.id)
-      .eq("logged_on", today)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      if (existing.error) {
+        setCloudMessage("A közérzet mentése nem sikerült.");
+        return;
+      }
 
-    if (existing.error) {
-      setCloudMessage("A közérzet mentése nem sikerült.");
+      const payload = {
+        mood: nextMood,
+        energy: energyToNumber(nextEnergy),
+        stress: stressToNumber(nextStress),
+        note: nextNote.trim() || null,
+      };
+
+      const result = existing.data?.id
+        ? await supabase
+            .from("wellbeing_logs")
+            .update(payload)
+            .eq("id", existing.data.id)
+            .eq("user_id", session.user.id)
+            .select("id")
+            .single()
+        : await supabase.from("wellbeing_logs").insert({
+            user_id: session.user.id,
+            logged_on: today,
+            ...payload,
+          });
+
+      if (result.error || (existing.data?.id && !result.data)) {
+        setCloudMessage("A közérzet mentése nem sikerült.");
+        return;
+      }
+
+      savedWellbeing.current = { mood: nextMood, energyLevel: nextEnergy, stressLevel: nextStress, note: nextNote };
+      setMood(nextMood);
+      setEnergyLevel(nextEnergy);
+      setStressLevel(nextStress);
+      if (next.note !== undefined) setWellbeingNote((current) => current === next.note ? nextNote : current);
+      setCloudMessage("");
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
     }
-
-    const payload = {
-      mood: nextMood,
-      energy: energyToNumber(nextEnergy),
-      stress: stressToNumber(nextStress),
-      note: nextNote.trim() || null,
-    };
-
-    const result = existing.data?.id
-      ? await supabase
-          .from("wellbeing_logs")
-          .update(payload)
-          .eq("id", existing.data.id)
-      : await supabase.from("wellbeing_logs").insert({
-          user_id: session.user.id,
-          logged_on: today,
-          ...payload,
-        });
-
-    if (result.error) {
-      setCloudMessage("A közérzet mentése nem sikerült.");
-      return;
-    }
-
-    setCloudMessage("");
   }
 
   async function saveMood(value: number) {
@@ -3612,36 +3750,49 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   async function completeWorkout(workout: Workout) {
-    const entry: MovementEntry = {
-      id: `guest-workout-${Date.now()}`,
-      date: localDateKey(),
-      title: workout.title,
-      minutes: workout.minutes,
-    };
+    const release = saveLock.current.acquire(`movement:${workout.id}`);
+    if (!release) return false;
 
-    if (!guestMode && session?.user) {
-      const { data, error } = await supabase
-        .from("movement_logs")
-        .insert({
-          user_id: session.user.id,
-          title: workout.title,
-          minutes: workout.minutes,
-          completed: true,
-        })
-        .select("id, logged_on")
-        .single();
+    try {
+      setCloudMessage("");
+      const entry: MovementEntry = {
+        id: `guest-workout-${Date.now()}`,
+        date: localDateKey(),
+        title: workout.title,
+        minutes: workout.minutes,
+      };
 
-      if (error || !data) {
-        setCloudMessage("A mozgás mentése nem sikerült.");
-        return false;
+      if (!guestMode && session?.user) {
+        const { data, error } = await supabase
+          .from("movement_logs")
+          .insert({
+            user_id: session.user.id,
+            title: workout.title,
+            minutes: workout.minutes,
+            completed: true,
+          })
+          .select("id, logged_on")
+          .single();
+
+        if (error || !data) {
+          setCloudMessage("A mozgás mentése nem sikerült.");
+          return false;
+        }
+        entry.id = data.id;
+        entry.date = data.logged_on;
       }
-      entry.id = data.id;
-      entry.date = data.logged_on;
-    }
 
-    setMovementHistory((current) => [...current, entry].slice(-50));
-    setMovementDone(true);
-    return true;
+      setMovementHistory((current) => [...current, entry].slice(-50));
+      setMovementDone(true);
+      return true;
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
+      return false;
+    } finally {
+      release();
+
+    }
   }
 
   function openMealModal() {
@@ -3677,59 +3828,79 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
   async function addMeal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const release = saveLock.current.acquire("meal");
+    if (!release) return;
 
-    const parsedKcal = Number(kcal.replace(",", "."));
-    const parsedProtein = Number(protein.replace(",", ".") || 0);
-    const parsedCarbs = Number(carbs.replace(",", ".") || 0);
-    const parsedFat = Number(fat.replace(",", ".") || 0);
+    try {
+      setCloudMessage("");
 
-    if (!foodName.trim() || !Number.isFinite(parsedKcal) || parsedKcal <= 0) {
-      return;
-    }
 
-    const draft = {
-      type: mealType,
-      food: foodName.trim(),
-      kcal: Math.round(parsedKcal),
-      protein: Math.max(0, Math.round(parsedProtein)),
-      carbs: Math.max(0, Math.round(parsedCarbs)),
-      fat: Math.max(0, Math.round(parsedFat)),
-      consumed: true,
-    };
+      const parsedKcal = Number(kcal.replace(",", "."));
+      const parsedProtein = Number(protein.replace(",", ".") || 0);
+      const parsedCarbs = Number(carbs.replace(",", ".") || 0);
+      const parsedFat = Number(fat.replace(",", ".") || 0);
 
-    if (guestMode || !session?.user) {
-      const meal: Meal = {
-        id: `guest-${Date.now()}`,
-        ...draft,
+      if (!foodName.trim() || !Number.isFinite(parsedKcal) || parsedKcal <= 0) {
+        setCloudMessage("Adj meg ételnevet és pozitív kalóriaértéket.");
+        return;
+      }
+
+      if ([parsedProtein, parsedCarbs, parsedFat].some((value) => !Number.isFinite(value) || value < 0)) {
+        setCloudMessage("A tápértékek nem negatív számok legyenek.");
+        return;
+      }
+
+      const draft = {
+        type: mealType,
+        food: foodName.trim(),
+        kcal: Math.round(parsedKcal),
+        protein: Math.max(0, Math.round(parsedProtein)),
+        carbs: Math.max(0, Math.round(parsedCarbs)),
+        fat: Math.max(0, Math.round(parsedFat)),
+        consumed: true,
       };
 
-      setMeals((current) => [...current, meal]);
+      if (guestMode || !session?.user) {
+        const meal: Meal = {
+          id: `guest-${Date.now()}`,
+          ...draft,
+        };
+
+        setMeals((current) => [...current, meal]);
+        setMealModalOpen(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("meals")
+        .insert({
+          user_id: session.user.id,
+          meal_type: draft.type,
+          food_name: draft.food,
+          kcal: draft.kcal,
+          protein_g: draft.protein,
+          carbs_g: draft.carbs,
+          fat_g: draft.fat,
+          consumed: draft.consumed,
+        })
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        setCloudMessage("Az étkezés mentése nem sikerült.");
+        return;
+      }
+
+      setMeals((current) => [...current, { id: data.id, ...draft }]);
       setMealModalOpen(false);
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return;
+    } finally {
+      release();
+
     }
-
-    const { data, error } = await supabase
-      .from("meals")
-      .insert({
-        user_id: session.user.id,
-        meal_type: draft.type,
-        food_name: draft.food,
-        kcal: draft.kcal,
-        protein_g: draft.protein,
-        carbs_g: draft.carbs,
-        fat_g: draft.fat,
-        consumed: draft.consumed,
-      })
-      .select("id")
-      .single();
-
-    if (error || !data) {
-      setCloudMessage("Az étkezés mentése nem sikerült.");
-      return;
-    }
-
-    setMeals((current) => [...current, { id: data.id, ...draft }]);
-    setMealModalOpen(false);
   }
 
   async function addRecipeToMeals(
@@ -3737,114 +3908,171 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
     portions: number,
     mealType = "Főétkezés",
   ) {
-    const ratio = portions / recipe.servings;
-    const draft = {
-      type: mealType,
-      food: `${recipe.name} (${String(portions).replace(".", ",")} adag)`,
-      kcal: Math.round(recipe.kcal * ratio),
-      protein: Math.round(recipe.protein * ratio),
-      carbs: Math.round(recipe.carbs * ratio),
-      fat: Math.round(recipe.fat * ratio),
-      consumed: false,
-    };
+    const release = saveLock.current.acquire(`recipe-meal:${recipe.id}:${mealType}:${portions}`);
+    if (!release) return false;
 
-    if (guestMode || !session?.user) {
-      setMeals((current) => [...current, { id: `guest-recipe-${Date.now()}`, ...draft }]);
-      return true;
-    }
-
-    const { data, error } = await supabase
-      .from("meals")
-      .insert({
-        user_id: session.user.id,
-        meal_type: draft.type,
-        food_name: draft.food,
-        kcal: draft.kcal,
-        protein_g: draft.protein,
-        carbs_g: draft.carbs,
-        fat_g: draft.fat,
+    try {
+      setCloudMessage("");
+      const ratio = portions / recipe.servings;
+      const draft = {
+        type: mealType,
+        food: `${recipe.name} (${String(portions).replace(".", ",")} adag)`,
+        kcal: Math.round(recipe.kcal * ratio),
+        protein: Math.round(recipe.protein * ratio),
+        carbs: Math.round(recipe.carbs * ratio),
+        fat: Math.round(recipe.fat * ratio),
         consumed: false,
-      })
-      .select("id")
-      .single();
+      };
 
-    if (error || !data) {
-      setCloudMessage("A recept étkezéshez adása nem sikerült.");
+      if (guestMode || !session?.user) {
+        setMeals((current) => [...current, { id: `guest-recipe-${Date.now()}`, ...draft }]);
+        return true;
+      }
+
+      const { data, error } = await supabase
+        .from("meals")
+        .insert({
+          user_id: session.user.id,
+          meal_type: draft.type,
+          food_name: draft.food,
+          kcal: draft.kcal,
+          protein_g: draft.protein,
+          carbs_g: draft.carbs,
+          fat_g: draft.fat,
+          consumed: false,
+        })
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        setCloudMessage("A recept étkezéshez adása nem sikerült.");
+        return false;
+      }
+
+      setMeals((current) => [...current, { id: data.id, ...draft }]);
+      return true;
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
       return false;
-    }
+    } finally {
+      release();
 
-    setMeals((current) => [...current, { id: data.id, ...draft }]);
-    return true;
+    }
   }
 
   async function markMealConsumed(id: string) {
-    const meal = meals.find((item) => item.id === id);
-    if (!meal || meal.consumed) return;
+    const release = saveLock.current.acquire(`meal:${id}`);
+    if (!release) return;
 
-    if (!guestMode && session?.user && !id.startsWith("demo-")) {
-      const { error } = await supabase
-        .from("meals")
-        .update({ consumed: true })
-        .eq("id", id);
+    try {
+      setCloudMessage("");
+      const meal = meals.find((item) => item.id === id);
+      if (!meal || meal.consumed) return;
 
-      if (error) {
-        setCloudMessage("Az étkezés elfogyasztásának mentése nem sikerült.");
-        return;
+      if (!guestMode && session?.user && !id.startsWith("demo-")) {
+        const { error } = await supabase
+          .from("meals")
+          .update({ consumed: true })
+          .eq("id", id)
+          .eq("user_id", session.user.id)
+          .select("id")
+          .single();
+
+        if (error) {
+          setCloudMessage("Az étkezés elfogyasztásának mentése nem sikerült.");
+          return;
+        }
       }
-    }
 
-    setMeals((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, consumed: true } : item,
-      ),
-    );
+      setMeals((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, consumed: true } : item,
+        ),
+      );
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
+      return;
+    } finally {
+      release();
+
+    }
   }
 
   async function deleteMeal(id: string) {
-    if (!guestMode && session?.user && !id.startsWith("demo-")) {
-      const { error } = await supabase.from("meals").delete().eq("id", id);
+    const release = saveLock.current.acquire(`meal:${id}`);
+    if (!release) return;
 
-      if (error) {
-        setCloudMessage("Az étkezés törlése nem sikerült.");
-        return;
+    try {
+      setCloudMessage("");
+      if (!guestMode && session?.user && !id.startsWith("demo-")) {
+        const { error } = await supabase.from("meals").delete().eq("id", id).eq("user_id", session.user.id).select("id").single();
+
+        if (error) {
+          setCloudMessage("Az étkezés törlése nem sikerült.");
+          return;
+        }
       }
-    }
 
-    setMeals((current) => current.filter((meal) => meal.id !== id));
+      setMeals((current) => current.filter((meal) => meal.id !== id));
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
+      return;
+    } finally {
+      release();
+
+    }
   }
 
   async function saveQuickWeight() {
-    const parsed = Number(quickWeight.replace(",", "."));
+    const release = saveLock.current.acquire("weight");
+    if (!release) return;
 
-    if (!Number.isFinite(parsed) || parsed < 30 || parsed > 250) {
-      return;
-    }
+    try {
+      setCloudMessage("");
+      const parsed = Number(quickWeight.replace(",", "."));
 
-    const next = Number(parsed.toFixed(1));
-    if (!guestMode && session?.user) {
-      const { error } = await supabase.from("weight_logs").insert({
-        user_id: session.user.id,
-        weight_kg: next,
-      });
-
-      if (error) {
-        setCloudMessage("A testsúly mentése nem sikerült.");
+      if (!Number.isFinite(parsed) || parsed < 30 || parsed > 250) {
+        setCloudMessage("A testsúly 30 és 250 kg közötti szám legyen.");
         return;
       }
-    }
 
-    setWeight(next);
-    setQuickWeight(next.toFixed(1).replace(".", ","));
-    setWeightHistory((current) => {
-      const today = localDateKey();
-      return [
-        ...current.filter((entry) => entry.date !== today),
-        { date: today, weight: next },
-      ].slice(-30);
-    });
+      const next = Number(parsed.toFixed(1));
+      if (!guestMode && session?.user) {
+        const { error } = await supabase.from("weight_logs").insert({
+          user_id: session.user.id,
+          weight_kg: next,
+        });
+
+        if (error) {
+          setCloudMessage("A testsúly mentése nem sikerült.");
+          return;
+        }
+      }
+
+      setWeight(next);
+      setQuickWeight(next.toFixed(1).replace(".", ","));
+      setWeightHistory((current) => {
+        const today = localDateKey();
+        return [
+          ...current.filter((entry) => entry.date !== today),
+          { date: today, weight: next },
+        ].slice(-30);
+      });
+
+    } catch {
+      setCloudMessage("A mentés nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
+      return;
+    } finally {
+      release();
+
+    }
   }
 
   function resetDemoData() {
+    savedWellbeing.current = null;
     setMeals(initialMeals);
     setWater(1200);
     setMovementDone(false);
@@ -3856,6 +4084,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
   }
 
   function startWithOwnData() {
+    savedWellbeing.current = null;
     setMeals([]);
     setWater(0);
     setMovementDone(false);
@@ -4035,8 +4264,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           </button>
         </header>
 
-        {!guestMode && session && (
-          <div className={cloudMessage ? "cloud-status error" : "cloud-status"}>
+        {(cloudMessage || (!guestMode && session)) && (
+          <div role={cloudMessage ? "alert" : "status"} className={cloudMessage ? "cloud-status error" : "cloud-status"}>
             <span>{cloudReady ? "☁" : "…"}</span>
             {cloudMessage || (cloudReady ? "Felhőmentés aktív" : "Adatok betöltése…")}
           </div>
@@ -6310,6 +6539,7 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
             <p>Csak a fontos adatokat add meg.</p>
 
             <form className="meal-form" onSubmit={addMeal}>
+              {cloudMessage && <p role="alert">{cloudMessage}</p>}
               <label>
                 <span>Étkezés típusa</span>
                 <select
