@@ -32,3 +32,7 @@ Ellenőrzés dátuma: 2026-10-09. Hatókör: helyi forrás, helyi build, elkül�
 ## Még nem igazolt
 
 A bejelentkezett felhasználó éles adatbázis-mentése és annak újratöltés utáni visszaolvasása nem volt tesztelhető: a meglévő böngészőmunkamenetet kezelő eszköz inicializálási hibával leállt. A külön tesztböngészőben nincs bejelentkezett felhasználó. A vendégböngészős próbák és a szimulált adatbázis-tesztek ezt nem helyettesítik. A kattintásvédelem az adott komponens munkamenetére vonatkozik; külön böngészőlapok vagy manuális hálózati újraküldés közötti adatbázis-szintű idempotenciát nem ad.
+
+## Kilépés gomb – utóellenőrzés
+
+Az oldalsáv navigációja külön görgethető, a Kilépés gomb az oldalsávon és a képernyőn belül marad. A gomb fehér alapon sötét szöveget és billentyűzetes fókuszjelzést kapott; a köztes ablakméret sem rejti el. A böngészős teszt hét méreten (1440×900, 1440×600, 1280×720, 1024×768, 900×600, 390×844, 390×600) igazolta a láthatóságot és a vendégmódból a belépési űrlaphoz való visszatérést. A bejelentkezett munkamenet tényleges megszüntetését ez a próba nem helyettesíti. Build és lint sikeres; két meglévő img-figyelmeztetés maradt. A teszt forrása: tests/browser-signout.mjs.

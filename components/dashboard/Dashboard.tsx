@@ -4159,8 +4159,8 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
           className="dashboard-signout"
           onClick={() => void onSignOut()}
         >
-          <span>↗</span>
-          Kilépés
+          <span aria-hidden="true">↗</span>
+          <span>Kilépés</span>
         </button>
       </aside>
 
@@ -6795,6 +6795,11 @@ export default function Dashboard({ onSignOut, session = null, guestMode = false
 
           .dashboard-sidebar .dashboard-signout {
             display: flex !important;
+            flex-direction: row !important;
+            justify-content: flex-start;
+            gap: 10px;
+            padding: 12px 15px;
+            font-size: 14px;
           }
 
           .dashboard-sidebar .dashboard-brand {
