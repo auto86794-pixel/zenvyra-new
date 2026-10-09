@@ -64,6 +64,7 @@ export default function HomeApp({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ZenvyraProfile | null>(null);
   const [profileReady, setProfileReady] = useState(false);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
+  const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -75,7 +76,8 @@ export default function HomeApp({ children }: { children: ReactNode }) {
       const { supabase } = await import("@/lib/supabase/client");
       if (!mounted) return;
 
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
       if (!mounted) return;
 
       setSession(data.session);
@@ -101,7 +103,11 @@ export default function HomeApp({ children }: { children: ReactNode }) {
       unsubscribe = () => subscription.unsubscribe();
     }
 
-    void syncSession();
+    void syncSession().catch(() => {
+      if (!mounted) return;
+      setAuthReady(true);
+      setConnectionError("A bejelentkezés ellenőrzése nem sikerült. Próbáld újra; az adataidat nem módosítottuk.");
+    });
 
     return () => {
       mounted = false;
@@ -129,6 +135,7 @@ export default function HomeApp({ children }: { children: ReactNode }) {
     const userId = sessionUserId;
 
     async function loadProfile() {
+      setConnectionError("");
       setProfileReady(false);
       const { supabase } = await import("@/lib/supabase/client");
       if (!active) return;
@@ -142,8 +149,7 @@ export default function HomeApp({ children }: { children: ReactNode }) {
       if (!active) return;
 
       if (error) {
-        console.error("Profile load error:", error);
-        setProfile(null);
+        setConnectionError("A profilod betöltése nem sikerült. Próbáld újra; nem kell új profilt létrehoznod.");
         setProfileReady(true);
         return;
       }
@@ -152,7 +158,11 @@ export default function HomeApp({ children }: { children: ReactNode }) {
       setProfileReady(true);
     }
 
-    void loadProfile();
+    void loadProfile().catch(() => {
+      if (!active) return;
+      setConnectionError("A profilod betöltése nem sikerült. Ellenőrizd a kapcsolatot, majd próbáld újra.");
+      setProfileReady(true);
+    });
 
     return () => {
       active = false;
@@ -169,10 +179,20 @@ export default function HomeApp({ children }: { children: ReactNode }) {
     }
 
     const { supabase } = await import("@/lib/supabase/client");
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setConnectionError("A kijelentkezés nem sikerült. Próbáld újra.");
+      return;
+    }
     setSession(null);
     setProfile(null);
     setProfileReady(true);
+  }
+
+  if (connectionError && (session || showAuth)) {
+    return <main className="auth-loading"><div role="alert">{connectionError}</div>
+      <button className="login-button" onClick={() => window.location.reload()}>Újrapróbálom</button>
+    </main>;
   }
 
   if (session && !profileReady) {
@@ -253,11 +273,11 @@ export default function HomeApp({ children }: { children: ReactNode }) {
             srcSet="/zenvyra-hero-mobile-clean.webp"
           />
           <img
-            src="/zenvyra-hero.webp"
+            src="/zenvyra-hero-mobile-clean.webp"
             alt="Zenvyra wellness: egyensúly, tudatosság, táplálkozás, mozgás és közérzet"
             className="welcome-hero-image"
-            width="1536"
-            height="1024"
+            width="560"
+            height="900"
             fetchPriority="high"
             decoding="async"
           />
@@ -282,7 +302,18 @@ export default function HomeApp({ children }: { children: ReactNode }) {
             setAuthMode("login");
             setShowAuth(false);
           }}
-          onSuccess={() => undefined}
+          onSuccess={async () => {
+            const { supabase } = await import("@/lib/supabase/client");
+            const { data, error } = await supabase.auth.getSession();
+            if (error) throw error;
+            setConnectionError("");
+            setSession(data.session);
+            setGuestMode(false);
+            setProfile(null);
+            setProfileReady(!data.session);
+            setAuthReady(true);
+            if (data.session) setProfileReloadKey((key) => key + 1);
+          }}
           onGuest={() => {
             setGuestMode(true);
             setProfileReady(true);

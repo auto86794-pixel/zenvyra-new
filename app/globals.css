@@ -4439,3 +4439,7 @@ button {
   .landing-feature-grid article { padding: 22px; }
   .landing-nav { gap: 12px 20px; font-size: .9rem; }
 }
+
+@media (min-width: 721px) {
+  .auth-hero-panel .welcome-hero-image { object-position: center center; }
+}

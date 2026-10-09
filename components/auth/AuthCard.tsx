@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 
-import { supabase } from "@/lib/supabase/client";
+import { supabase, usesNeon, getNeonPasswordClient } from "@/lib/supabase/client";
 
 export type AuthMode = "login" | "register" | "forgot";
 
@@ -22,6 +22,8 @@ export default function AuthCard({
   onGuest,
   onBack,
 }: Props) {
+  const [verifyEmail, setVerifyEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -62,7 +64,7 @@ export default function AuthCard({
     try {
       if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: window.location.origin,
+          redirectTo: usesNeon ? `${window.location.origin}/jelszo-visszaallitas` : window.location.origin,
         });
 
         if (error) throw error;
@@ -88,6 +90,17 @@ export default function AuthCard({
           return;
         }
 
+        if (usesNeon) {
+          const result = await getNeonPasswordClient().signUp.email({
+            email: cleanEmail, password, name: name.trim(), callbackURL: window.location.origin,
+          });
+          if (result.error) throw result.error;
+          setVerifyEmail(cleanEmail);
+          setSuccess(true);
+          setMessage("A fiókod elkészült. Add meg az e-mailben kapott megerősítő kódot.");
+          return;
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
@@ -110,9 +123,12 @@ export default function AuthCard({
         }
 
         setSuccess(true);
-        setMessage(
-          "Elküldtük a megerősítő levelet. Nyisd meg a benne lévő hivatkozást, majd jelentkezz be.",
-        );
+        if (usesNeon) {
+          setVerifyEmail(cleanEmail);
+          setMessage("A fiókod elkészült. Add meg az e-mailben kapott megerősítő kódot.");
+        } else {
+          setMessage("Elküldtük a megerősítő levelet. Nyisd meg a benne lévő hivatkozást, majd jelentkezz be.");
+        }
         return;
       }
 
@@ -133,21 +149,26 @@ export default function AuthCard({
       await onSuccess?.();
     } catch (error) {
       const raw =
-        error instanceof Error ? error.message : "A művelet nem sikerült.";
+        error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error ? String(error.message) : "A művelet nem sikerült.";
 
       setSuccess(false);
 
-      if (raw.toLowerCase().includes("invalid login credentials")) {
+      if (/invalid login credentials|invalid email or password/i.test(raw)) {
         setMessage("Hibás e-mail-cím vagy jelszó.");
       } else if (
         raw.toLowerCase().includes("already registered") ||
-        raw.toLowerCase().includes("user already registered")
+        raw.toLowerCase().includes("user already registered") || raw.toLowerCase().includes("user already exists")
       ) {
         setMessage("Ehhez az e-mail-címhez már tartozik fiók.");
       } else if (raw.toLowerCase().includes("email rate limit")) {
         setMessage(
           "Túl sok e-mail-kérés érkezett rövid idő alatt. Próbáld újra néhány perc múlva.",
         );
+      } else if (/failed to fetch|network|fetch failed/i.test(raw)) {
+        setMessage("Nem sikerült kapcsolódni a szolgáltatáshoz. Ellenőrizd az internetkapcsolatot, majd próbáld újra.");
+      } else if (/email.*not.*verified|email.*not.*confirmed/i.test(raw) && usesNeon) {
+        setVerifyEmail(cleanEmail);
+        setMessage("Erősítsd meg az e-mail-címedet. Ha szükséges, kérj új kódot.");
       } else {
         setMessage(raw);
       }
@@ -155,6 +176,53 @@ export default function AuthCard({
       setBusy(false);
     }
   };
+
+  async function verifyAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setSuccess(false);
+    try {
+      const { error } = await supabase.auth.verifyOtp({ email: verifyEmail, token: verificationCode.trim(), type: "signup" });
+      if (error) throw error;
+      setVerifyEmail("");
+      setVerificationCode("");
+      setSuccess(true);
+      setMessage("Az e-mail-címed megerősítve. Most már bejelentkezhetsz.");
+      onModeChange("login");
+      await onSuccess?.();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "A kód ellenőrzése nem sikerült.");
+    } finally { setBusy(false); }
+  }
+
+  async function resendCode() {
+    setBusy(true);
+    try {
+      const { error } = usesNeon
+        ? await getNeonPasswordClient().emailOtp.sendVerificationOtp({ email: verifyEmail, type: "email-verification" })
+        : await supabase.auth.resend({ type: "signup", email: verifyEmail });
+      if (error) throw error;
+      setSuccess(true);
+      setVerificationCode("");
+      setMessage("Új kódot kértünk. A legfrissebb levélben érkező kódot használd; nézd meg a levélszemét mappát is.");
+    } catch (error) {
+      setSuccess(false);
+      setMessage(error instanceof Error ? error.message : "A kód küldése nem sikerült.");
+    } finally { setBusy(false); }
+  }
+
+  if (verifyEmail) {
+    return <div className="login-card premium-auth-card">
+      <header className="login-heading"><h2>Erősítsd meg az e-mail-címed</h2><p>Add meg a(z) {verifyEmail} címre kapott kódot.</p></header>
+      <form className="login-form" onSubmit={verifyAccount}>
+        <label className="field"><span className="sr-only">Megerősítő kód</span><input aria-label="Megerősítő kód" autoComplete="one-time-code" inputMode="numeric" required value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} /></label>
+        <div role="status" className={success ? "auth-message success" : "auth-message"}>{message}</div>
+        <button className="login-button" disabled={busy || !verificationCode.trim()} type="submit">{busy ? "Dolgozunk…" : "E-mail-cím megerősítése"}</button>
+      </form>
+      <button className="text-link" type="button" disabled={busy} onClick={resendCode}>Új kódot kérek</button>
+      <button className="text-link" type="button" disabled={busy} onClick={() => { setVerifyEmail(""); changeMode("login"); }}>Vissza a belépéshez</button>
+    </div>;
+  }
 
   return (
     <div className="login-card premium-auth-card">
@@ -306,6 +374,7 @@ export default function AuthCard({
 
       {mode !== "forgot" && (
         <>
+          {!usesNeon && <>
           <div className="divider">
             <span />
             <small>vagy</small>
@@ -351,6 +420,8 @@ export default function AuthCard({
               <span>Folytatás Apple-lel</span>
             </button>
           </div>
+
+          </>}
 
           {onGuest && (
             <button
